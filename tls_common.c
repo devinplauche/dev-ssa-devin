@@ -619,6 +619,26 @@ int request_cipher_suite(connection* conn, char* requested_cipher) { //FIXME cha
 		return -1;
 	}
 }
+/**
+* instead of deleting from list, disables cipher by appending character to front
+*	@param conn the connection
+* @param cipher to be disabled
+* @returns 0 on succss, -1 on Error
+*/
+int alternate_disable_cipher(connection* conn, char* cipher) {
+	char non_permanent_disable[2] = "-";
+	if(cipher[0] != '-' && cipher[0] != '!') {
+		strcat(non_permanent_disable, cipher);
+		return 0;
+	}
+	else if(cipher[0] == '+') {
+		cipher[0] = '-'; //disables cipher moved to end of list
+	}
+	else {
+		log_printf(LOG_ERROR, "Cipher already disabled.\n");
+		return -1;
+	}
+}
 
 /*
  *******************************************************************************
@@ -724,6 +744,7 @@ int check_key_cert_pair(SSL* tls) {
  err:
 	return -EPROTO; /* Protocol err--key didn't match or chain didn't build */
 }
+
 /**
 * set function
 */
@@ -738,6 +759,7 @@ void set_last_negotiated(char* just_negotiated) { //FIXME find some way to make 
 char* get_last_negotiated() {
 	return last_negotiated;
 }
+
 /**
 * Checks if requested cipher is a valid cipher string
 * @param cipher_string the string to be checked
@@ -754,11 +776,28 @@ int is_valid_cipher_string(char* cipher_string) { //use stdbool?
 		return 0;
 	}
 }
+/**
+* Moves cipher to front of cipher string (affects preference on some systems)
+*	@param cipher the cipher to be moved to the front of the String
+* @param cipherlist list of ciphers
+*/
 int set_preferred(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist) { //don't confuse list with suite
-	clear_from_cipherlist(cipher, cipherlist);
+int ret = 0;
+	ret = clear_from_cipherlist(cipher, cipherlist);
+	if(ret != 0) { //check error codes
+		return -1;
+	}
 	char* enabled_ciphers; //use malloc
-	get_ciphers_string(cipherlist, enabled_ciphers, 10000); //FIXME replace last argument with macro
+	ret = get_ciphers_string(cipherlist, enabled_ciphers, 10000); //FIXME replace last argument with macro
+	if(ret != 0) {
+		return -1;
+	}
 	char colon[2] = ":";
 	strcat(cipher,colon);
 	strcat(cipher, enabled_ciphers);
+	ret = SSL_CTX_set_cipher_list(cipher); //FIXME check to set cipher list or cipher suites
+	if(ret != 0) {
+		return -1;
+	}
+	return ret;
 }
