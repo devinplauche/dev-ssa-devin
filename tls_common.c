@@ -14,16 +14,19 @@
 
 #define UBUNTU_DEFAULT_CA "/etc/ssl/certs/ca-certificates.crt"
 #define FEDORA_DEFAULT_CA "/etc/pki/tls/certs/ca-bundle.crt"
-
+#define MAX_CIPHER_SUITE_STRING 100
 
 int concat_ciphers(char** list, int num, char** out);
 
 int clear_from_cipherlist(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist);
+int set_preferred(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist); //HOLD
 int get_ciphers_strlen(STACK_OF(SSL_CIPHER)* ciphers);
 int get_ciphers_string(STACK_OF(SSL_CIPHER)* ciphers, char* buf, int buf_len);
 int check_key_cert_pair(SSL* tls);
-
-
+char* get_last_negotiated();
+void set_last_negotiated(char* just_negotiated);
+int is_valid_cipher_string(char* cipher_string);
+char last_negotiated[MAX_CIPHER_SUITE_STRING]; //FIXME, put at start of file
 /**
  *******************************************************************************
  *                           COMMON CONFIG LOADING FUNCTIONS
@@ -84,7 +87,7 @@ int load_cipher_list(SSL_CTX* ctx, char** list, int num) {
 	ret = SSL_CTX_set_cipher_list(ctx, ciphers);
 	if (ret != 1)
 		goto end;
-	
+
 	/* returns some false negatives... but it's the best we've got */
 	if (sk_SSL_CIPHER_num(SSL_CTX_get_ciphers(ctx)) < num) {
 		/* Fewer ciphers were added than were specified */
@@ -134,7 +137,7 @@ int load_ciphersuites(SSL_CTX* ctx, char** list, int num) {
  * Helper function for load_cipher_list and load_ciphersuites; takes a given
  * list of ciphers and converts them into the OpenSSL-defined format required
  * to set the cipher list or ciphersuites.
- * @param list The list of ciphers to be converted into OpenSSL cipherlist 
+ * @param list The list of ciphers to be converted into OpenSSL cipherlist
  * format.
  * @param num The number of ciphers in list.
  * @param out The converted cipherlist string (NULL-terminated).
@@ -180,12 +183,12 @@ int concat_ciphers(char** list, int num, char** out) {
 /**
  * Loads the given certificate authority .pem or .der-encoded certificates into
  * ctx from the file or directory specified by path. This function will load in
- * all certificates found in a directory, or all certificates found in an 
- * individual file (if the file is capable of containing more than one 
- * certificate). If CA_path is null, this function will attempt to find the 
+ * all certificates found in a directory, or all certificates found in an
+ * individual file (if the file is capable of containing more than one
+ * certificate). If CA_path is null, this function will attempt to find the
  * default location of CA certificates on your machine.
  * @param ctx The SSL_CTX to load certificate authorities in to.
- * @param CA_path A NULL-terminated string representing the path to the 
+ * @param CA_path A NULL-terminated string representing the path to the
  * directory/file; or NULL if the default locations are desired.
  * @returns 1 on success, or 0 if an error occurred.
  */
@@ -197,20 +200,20 @@ int load_certificate_authority(SSL_CTX* ctx, char* CA_path) {
 		if (access(UBUNTU_DEFAULT_CA, F_OK) != -1) {
 			CA_path = UBUNTU_DEFAULT_CA;
 			log_printf(LOG_INFO, "Found the Ubuntu CA file.\n");
-		
+
 		} else if(access(FEDORA_DEFAULT_CA, F_OK) != -1) {
 			CA_path = FEDORA_DEFAULT_CA;
 			log_printf(LOG_INFO, "Found the Fedora CA file.\n");
-		
+
 		} else { /* UNSUPPORTED OS */
 			log_printf(LOG_ERROR, "Unable to find valid CA location.\n");
 			return 0;
 		}
 	}
 
-	
+
 	if (stat(CA_path, &file_stats) != 0) {
-		log_printf(LOG_ERROR, "Failed to access CA file %s: %s\n", 
+		log_printf(LOG_ERROR, "Failed to access CA file %s: %s\n",
 				CA_path, strerror(errno));
 		return 0;
 	}
@@ -302,7 +305,7 @@ int get_peer_certificate(connection* conn, char** data, unsigned int* len) {
  * @returns 0 on success; or -errno if an error occurred.
  */
 int get_peer_identity(connection* conn, char** identity, unsigned int* len) {
-	
+
 	X509_NAME* subject_name;
 	X509* cert;
 
@@ -328,7 +331,7 @@ int get_peer_identity(connection* conn, char** identity, unsigned int* len) {
 
 /**
  * Retrieves the given connection's assigned hostname (as used in SNI
- * indication). Note that this does not retrieve the hostname of a server a 
+ * indication). Note that this does not retrieve the hostname of a server a
  * client has connected to; rather, this retrieves the hostname that has
  * been assigned to the given connection, assuming that the given connection
  * is a server.
@@ -340,7 +343,7 @@ int get_peer_identity(connection* conn, char** identity, unsigned int* len) {
 int get_hostname(connection* conn, char** data, unsigned int* len) {
 
 	const char* hostname;
-	
+
 	switch (conn->state) {
 	case SERVER_NEW:
 	case SERVER_CONNECTING:
@@ -408,9 +411,9 @@ int get_enabled_ciphers(connection* conn, char** data, unsigned int* len) {
  * Sets the given connection to be either a client or server connection.
  * @param conn The connection whose state should be modified.
  * @param type The type of connection to change the connection to; should
- * be 0 (SERVER_CONN) to set the connection to a SERVER_NEW state, or 1 
+ * be 0 (SERVER_CONN) to set the connection to a SERVER_NEW state, or 1
  * (CLIENT_CONN) to set the connection to a CLIENT_NEW state.
- * 
+ *
  * @returns 0 on success, or -errno if an error occurred.
  */
 int set_connection_type(connection* conn, daemon_context* daemon, int type) {
@@ -440,7 +443,7 @@ int set_connection_type(connection* conn, daemon_context* daemon, int type) {
 
 /**
  * Sets the certificate chain to be used for a given connection conn using
- * the file/directory pointed to by path. 
+ * the file/directory pointed to by path.
  * @param conn The connection to load the certificate chain into.
  * @param path The path to the certificate chain directory/file.
  * @returns 0 on success, or -errno if an error occurred.
@@ -487,12 +490,12 @@ int set_certificate_chain(connection* conn, char* path) {
 }
 
 /**
- * Sets a private key for the given connection conn using the key located 
- * by path, and verifies that the given key matches the last loaded 
- * certificate chain. An SSL* can have multiple private key/cert chain pairs, 
+ * Sets a private key for the given connection conn using the key located
+ * by path, and verifies that the given key matches the last loaded
+ * certificate chain. An SSL* can have multiple private key/cert chain pairs,
  * so care should be taken to make sure they are loaded in the right sequence
  * or else this function will fail.
- * 
+ *
  * @param conn The connection to add the given private key to.
  * @param path The location of the Private Key file.
  * @returns 0 on success, or -errno if an error occurred.
@@ -514,26 +517,26 @@ int set_private_key(connection* conn, char* path) {
 
 	ret = SSL_use_PrivateKey_file(conn->tls, path, SSL_FILETYPE_PEM);
 	if (ret == 1) /* pem key loaded */
-		return check_key_cert_pair(conn->tls); 
+		return check_key_cert_pair(conn->tls);
 	else
 		ERR_clear_error();
 
 	ret = SSL_use_PrivateKey_file(conn->tls, path, SSL_FILETYPE_ASN1);
 	if (ret == 1) /* ASN.1 key loaded */
-		return check_key_cert_pair(conn->tls);  
+		return check_key_cert_pair(conn->tls);
 	else
 		ERR_clear_error();
 
 	ret = SSL_use_PrivateKey_file(conn->tls, path, SSL_FILETYPE_PEM);
 	if (ret == 1) /* pem RSA key loaded */
-		return check_key_cert_pair(conn->tls); 
+		return check_key_cert_pair(conn->tls);
 	else
 		ERR_clear_error();
 
 	ret = SSL_use_RSAPrivateKey_file(conn->tls, path, SSL_FILETYPE_ASN1);
 	if (ret == 1) /* ASN.1 RSA key loaded */
-		return check_key_cert_pair(conn->tls); 
-	
+		return check_key_cert_pair(conn->tls);
+
 	/* TODO: set ret to OpenSSL error */
 	ret = -EBADF;
  err:
@@ -546,7 +549,7 @@ int set_private_key(connection* conn, char* path) {
  * connection conn to those found in the file specified by path.
  * @param conn The connection to modify CA trusts on.
  * @param path The path to a file containing .pem encoded CA's.
- * @returns 0 on success, or -ernno if an error occurred. 
+ * @returns 0 on success, or -ernno if an error occurred.
  */
 int set_trusted_CA_certificates(connection* conn, char* path) {
 
@@ -558,7 +561,7 @@ int set_trusted_CA_certificates(connection* conn, char* path) {
 	default:
 		return -EINVAL; /* TODO: correct return value? */
 	}
-	
+
 	STACK_OF(X509_NAME)* cert_names = SSL_load_client_CA_file(path);
 	if (cert_names == NULL)
 		return -EBADF;
@@ -587,6 +590,34 @@ int disable_cipher(connection* conn, char* cipher) {
 		return -EINVAL;
 
 	return 0;
+}
+
+
+/**
+* Allows the user to select an allowed cipher from configuration file
+* @param requested_cipher the cipher to request
+* @return 0 on success, -1 on error
+*/
+int request_cipher_suite(connection* conn, char* requested_cipher) { //FIXME change from char*
+	char cipher_buf[10000]; //TODO replace with macro
+	unsigned int buf_len = 0;
+	if(!is_valid_cipher_string(requested_cipher)) { //handles logging error
+		return -1;
+	}
+
+	get_enabled_ciphers(conn, &cipher_buf, &buf_len);
+	if(strstr(cipher_buf, requested_cipher)) {
+
+		STACK_OF(SSL_CIPHER)* cipherlist = SSL_get_ciphers(conn->tls);
+		set_preferred(requested_cipher, cipherlist);
+		set_last_negotiated(requested_cipher);
+
+		return 0;
+	}
+	else {
+		log_printf(LOG_ERROR, "Not an allowed cipher.\n");
+		return -1;
+	}
 }
 
 /*
@@ -670,13 +701,13 @@ int clear_from_cipherlist(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist) {
 		return -1;
 }
 
-/** 
+/**
  * Verifies that the loaded private key and certificate match each other.
  * @pre The Private Key and Certificate chain have already been loaded into
  * tls.
  * @param tls The SSL object containing the certificate chain and private key
  * for which to check.
- * @returns 0 if the checks succeeded; -EPROTO otherwise. 
+ * @returns 0 if the checks succeeded; -EPROTO otherwise.
  */
 int check_key_cert_pair(SSL* tls) {
 	if (SSL_check_private_key(tls) != 1) {
@@ -692,4 +723,42 @@ int check_key_cert_pair(SSL* tls) {
 	return 0;
  err:
 	return -EPROTO; /* Protocol err--key didn't match or chain didn't build */
+}
+/**
+* set function
+*/
+void set_last_negotiated(char* just_negotiated) { //FIXME find some way to make private
+	last_negotiated[0] = '\0'; //clears string
+	strcpy(last_negotiated, just_negotiated);
+}
+/**
+* get function
+* @returns last_negotiated last negotiated cipher
+*/
+char* get_last_negotiated() {
+	return last_negotiated;
+}
+/**
+* Checks if requested cipher is a valid cipher string
+* @param cipher_string the string to be checked
+* @returns  1 for success, 0 for failure, (boolean values)
+*/
+int is_valid_cipher_string(char* cipher_string) { //use stdbool?
+	char colon[2] = ":"; //also check if it exists in cipherstring
+
+	if(strstr(cipher_string, colon) == NULL) {
+		return 1;
+	}
+	else {
+		log_printf(LOG_ERROR, "Invalid cipher string.\n");
+		return 0;
+	}
+}
+int set_preferred(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist) { //don't confuse list with suite
+	clear_from_cipherlist(cipher, cipherlist);
+	char* enabled_ciphers; //use malloc
+	get_ciphers_string(cipherlist, enabled_ciphers, 10000); //FIXME replace last argument with macro
+	char colon[2] = ":";
+	strcat(cipher,colon);
+	strcat(cipher, enabled_ciphers);
 }
