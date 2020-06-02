@@ -25,7 +25,7 @@
 #define TLS_CLIENT_CONNECTION             98
 #define TLS_SERVER_CONNECTION             99
 #define TLS_ERROR                        100
-
+#define TLS_NEGOTIATED_CIPHER            101 //is 101 Ok?
 
 /* TCP options */
 #define TCP_UPGRADE_TLS         33
@@ -45,4 +45,3 @@ struct sockaddr_host {
 
 
 #endif
-

@@ -36,11 +36,12 @@ int load_cipher_list(SSL_CTX* ctx, char** list, int num);
 int load_ciphersuites(SSL_CTX* ctx, char** list, int num);
 
 
-/* setsockopt */
+/* getsockopt */
 int get_peer_certificate(connection* conn, char** data, unsigned int* len);
 int get_peer_identity(connection* conn_ctx, char** data, unsigned int* len);
 int get_hostname(connection* conn_ctx, char** data, unsigned int* len);
 int get_enabled_ciphers(connection* conn, char** data, unsigned int* len);
+int get_last_negotiated(connection* conn, char** data, unsigned int* len);
 
 /* setsockopt */
 int set_connection_type(connection* conn, daemon_context* daemon, int type);
@@ -48,5 +49,3 @@ int set_trusted_CA_certificates(connection* conn, char* path);
 int disable_cipher(connection* conn, char* cipher);
 int set_certificate_chain(connection* conn, char* path);
 int set_private_key(connection* conn, char* path);
-
-

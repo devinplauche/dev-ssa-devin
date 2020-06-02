@@ -14,7 +14,7 @@
 
 #define UBUNTU_DEFAULT_CA "/etc/ssl/certs/ca-certificates.crt"
 #define FEDORA_DEFAULT_CA "/etc/pki/tls/certs/ca-bundle.crt"
-#define MAX_CIPHER_SUITE_STRING 100
+#define MAX_CIPHER_SUITE_STRING 100 //check size
 
 int concat_ciphers(char** list, int num, char** out);
 
@@ -23,10 +23,11 @@ int set_preferred(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist); //HOLD
 int get_ciphers_strlen(STACK_OF(SSL_CIPHER)* ciphers);
 int get_ciphers_string(STACK_OF(SSL_CIPHER)* ciphers, char* buf, int buf_len);
 int check_key_cert_pair(SSL* tls);
-char* get_last_negotiated();
-void set_last_negotiated(char* just_negotiated);
+
+int set_last_negotiated(char* just_negotiated);//FIXME
 int is_valid_cipher_string(char* cipher_string);
-char last_negotiated[MAX_CIPHER_SUITE_STRING]; //FIXME, put at start of file
+int load_either(connection* conn);
+char last_negotiated[MAX_CIPHER_SUITE_STRING];
 /**
  *******************************************************************************
  *                           COMMON CONFIG LOADING FUNCTIONS
@@ -374,8 +375,6 @@ int get_enabled_ciphers(connection* conn, char** data, unsigned int* len) {
 	char* ciphers_str = "";
 
 
-
-
 	STACK_OF(SSL_CIPHER)* ciphers = SSL_get_ciphers(conn->tls);
 	/* TODO: replace this with SSL_get1_supported_ciphers? Maybe... */
 	if (ciphers == NULL)
@@ -579,6 +578,7 @@ int set_trusted_CA_certificates(connection* conn, char* path) {
  * @returns 0 on success; -errno otherwise. EINVAL means the cipher to be
  * removed was not found.
  */
+
 int disable_cipher(connection* conn, char* cipher) {
 
 	STACK_OF(SSL_CIPHER)* cipherlist = SSL_get_ciphers(conn->tls);
@@ -594,50 +594,39 @@ int disable_cipher(connection* conn, char* cipher) {
 
 
 /**
-* Allows the user to select an allowed cipher from configuration file
+* Allows the user to select an allowed cipher from configuration file for session
 * @param requested_cipher the cipher to request
 * @return 0 on success, -1 on error
 */
-int request_cipher_suite(connection* conn, char* requested_cipher) { //FIXME change from char*
-	char cipher_buf[10000]; //TODO replace with macro
-	unsigned int buf_len = 0;
-	if(!is_valid_cipher_string(requested_cipher)) { //handles logging error
-		return -1;
-	}
-
-	get_enabled_ciphers(conn, &cipher_buf, &buf_len);
-	if(strstr(cipher_buf, requested_cipher)) {
-
-		STACK_OF(SSL_CIPHER)* cipherlist = SSL_get_ciphers(conn->tls);
-		set_preferred(requested_cipher, cipherlist);
-		set_last_negotiated(requested_cipher);
-
-		return 0;
-	}
-	else {
-		log_printf(LOG_ERROR, "Not an allowed cipher.\n");
-		return -1;
-	}
+int request_cipher(connection* conn, char* cipher_string) {
+	
 }
+
+
 /**
-* instead of deleting from list, disables cipher by appending character to front
+* instead of deleting from list, temproarily disables cipher by appending character to front
 *	@param conn the connection
 * @param cipher to be disabled
 * @returns 0 on succss, -1 on Error
 */
-int alternate_disable_cipher(connection* conn, char* cipher) {
+int remove_cipher(connection* conn, char* cipher) {
 	char non_permanent_disable[2] = "-";
+	//check allowed cipher
 	if(cipher[0] != '-' && cipher[0] != '!') {
 		strcat(non_permanent_disable, cipher);
+		load_either(conn);
 		return 0;
 	}
 	else if(cipher[0] == '+') {
 		cipher[0] = '-'; //disables cipher moved to end of list
+		load_either(conn);
+		return 0;
 	}
 	else {
 		log_printf(LOG_ERROR, "Cipher already disabled.\n");
 		return -1;
 	}
+
 }
 
 /*
@@ -756,15 +745,54 @@ void set_last_negotiated(char* just_negotiated) { //FIXME find some way to make 
 * get function
 * @returns last_negotiated last negotiated cipher
 */
-char* get_last_negotiated() {
-	return last_negotiated;
+int get_last_negotiated(connection* conn, char** data, unsigned int* len) {
+	SSL* ssl = (conn->tls);
+	const SSL_SESSION *sess = SSL_get_session(ssl); //FIXME increment, put in callback? //need to decode object?
+	const SSL_CIPHER* cipher = SSL_SESSION_get0_cipher(sess); //should not be released
+	char* cipher_name = (cipher->name);
+
+	if(cipher_name != NULL) {
+		*data = cipher_name;
+		*len = strlen(cipher_name) + 1; //null terminate
+		return 0;
+	}
+	else {
+		return -1;
+	}
 }
+
+/**
+* Detects SSL version and loads ciphersuites appropiately
+* @param ssl SSL object used in connection_new
+* @returns 0 on success, -1 on failure
+*/
+int load_either(connection* conn) {
+	char* data;
+	unsigned int len = 0;
+	SSL* ssl = (conn->tls);
+	SSL_CTX* ctx = SSL_get_SSL_CTX(ssl);
+	long version = SSL_version(ssl);
+	if(version == TLS1_3_VERSION) {
+		get_enabled_ciphers(conn, &data, &len);
+		load_ciphersuites(ctx, &data, len);
+		return 0;
+	} else if(version == TLS1_2_VERSION){ /* TODO only allow TLS1_2_VERSION? */
+		get_enabled_ciphers(conn, &data, &len);
+		load_cipher_list(ctx, &data, len);
+		return 0;
+	}
+	else {
+		log_printf(LOG_ERROR, "TLS version too low\n");
+		return -1;
+	}
+}
+
 
 /**
 * Checks if requested cipher is a valid cipher string
 * @param cipher_string the string to be checked
 * @returns  1 for success, 0 for failure, (boolean values)
-*/
+*//*
 int is_valid_cipher_string(char* cipher_string) { //use stdbool?
 	char colon[2] = ":"; //also check if it exists in cipherstring
 
@@ -776,11 +804,13 @@ int is_valid_cipher_string(char* cipher_string) { //use stdbool?
 		return 0;
 	}
 }
+*/
 /**
 * Moves cipher to front of cipher string (affects preference on some systems)
 *	@param cipher the cipher to be moved to the front of the String
 * @param cipherlist list of ciphers
 */
+/*
 int set_preferred(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist) { //don't confuse list with suite
 int ret = 0;
 	ret = clear_from_cipherlist(cipher, cipherlist);
@@ -795,9 +825,11 @@ int ret = 0;
 	char colon[2] = ":";
 	strcat(cipher,colon);
 	strcat(cipher, enabled_ciphers);
-	ret = SSL_CTX_set_cipher_list(cipher); //FIXME check to set cipher list or cipher suites
+	long version = get_tls_version(TLS1_2_VERSION); //find a way to get tls version being currently used
+
+	ret = SSL_CTX_set_cipher_list(cipher); //FIXME check to set cipher list or cipher suites use a get TLS version
 	if(ret != 0) {
 		return -1;
 	}
 	return ret;
-}
+}*/

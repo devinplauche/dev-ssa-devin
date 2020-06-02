@@ -85,7 +85,7 @@ ssize_t recv_fd_from(int fd, void *ptr, size_t nbytes,
 
 /**
  * Performs all of the steps needed to run the SSA daemon, estabilshes
- * a netlink connection with the kernel module, begins listening on the given 
+ * a netlink connection with the kernel module, begins listening on the given
  * port for connections, and runs the libevent event base indefinitely.
  * This function only returns if an unrecoverable error occurred in the
  * Daemon, or if a SIGINT signal was sent to the process.
@@ -103,7 +103,7 @@ int run_daemon(int port, char* config_path) {
 
 	evutil_socket_t upgrade_sock;
 	evutil_socket_t server_sock;
-	
+
 	struct event* upgrade_ev = NULL;
 	struct event* sev_pipe = NULL;
 	struct event* sev_int = NULL;
@@ -113,8 +113,8 @@ int run_daemon(int port, char* config_path) {
 	if (daemon == NULL)
 		goto err;
 
-	log_printf(LOG_INFO, 
-			"Using libevent version %s with %s behind the scenes\n", 
+	log_printf(LOG_INFO,
+			"Using libevent version %s with %s behind the scenes\n",
 			event_get_version(), event_base_get_method(daemon->ev_base));
 
 
@@ -134,7 +134,7 @@ int run_daemon(int port, char* config_path) {
 	server_sock = create_server_socket(port, PF_INET, SOCK_STREAM);
 	listener = evconnlistener_new(daemon->ev_base, accept_cb, (void*) daemon,
 			LEV_OPT_CLOSE_ON_FREE | LEV_OPT_THREADSAFE, SOMAXCONN, server_sock);
-	if (listener == NULL) 
+	if (listener == NULL)
 		goto err;
 
 	evconnlistener_set_error_cb(listener, accept_error_cb);
@@ -361,19 +361,19 @@ evutil_socket_t create_server_socket(ev_uint16_t port, int family, int type) {
  * This function is called after an internal program calls connect() and after
  * that given TLS connection successfully finishes its handshake, but before
  * connect() returns for the internal program. That may seem confusing--here's
- * another way to think of it. Once the daemon has connected on the secure 
+ * another way to think of it. Once the daemon has connected on the secure
  * channel, it notifies the kernel module. The kernel module then takes the
- * `connect()` request from the internal program and reroutes it to this 
- * daemon's listening port and address (rather than the external one). This is 
+ * `connect()` request from the internal program and reroutes it to this
+ * daemon's listening port and address (rather than the external one). This is
  * the function that is called once that connection is successfully established.
- * @param listener The listener that the SSA Daemon uses to accept connections 
+ * @param listener The listener that the SSA Daemon uses to accept connections
  * from internal programs.
  * @param fd The socket that is now connected with the internal program.
- * @param address The internal program's address/port combo, encapsulated 
+ * @param address The internal program's address/port combo, encapsulated
  * within a sockaddr struct.
  * @param addrlen The length of address.
  * @param arg A void pointer referencing the daemon_context of the daemon.
- * 
+ *
  * WARNING: This is NOT the callback for a listening socket to receive
  * a new connection. The function for that is listener_accept_cb.
  */
@@ -382,7 +382,7 @@ void accept_cb(struct evconnlistener *listener, evutil_socket_t fd,
 	daemon_context* daemon = (daemon_context*)arg;
 	sock_context* sock_ctx;
 	int port, ret;
-	
+
 	log_printf(LOG_INFO, "Received internal part of client connection\n");
 
 	port = get_port(address);
@@ -520,7 +520,7 @@ void listener_accept_cb(struct evconnlistener *listener, evutil_socket_t efd,
 
 	accepting_sock_ctx->fd = efd;
 	/* NOTE: the id is TEMPORARY, to notify the kernel correctly upon a
-	 * successful connection. MAKE SURE not to free the sock_ctx associated 
+	 * successful connection. MAKE SURE not to free the sock_ctx associated
 	 * with this id from the hashmap!! It's the id of the listener!! */
 	accepting_sock_ctx->id = listening_sock_ctx->id;
 
@@ -667,14 +667,14 @@ void socket_cb(daemon_context* daemon, unsigned long id, char* comm) {
 	}
 
 	/* whether server or client, we need non blocking sockets for bufferevent */
-	
+
 	if (evutil_make_socket_nonblocking(fd) != 0) {
 		response = -EVUTIL_SOCKET_ERROR();
 		log_printf(LOG_ERROR, "Failed in evutil_make_socket_nonblocking: %s\n",
 			 evutil_socket_error_to_string(-response));
 		goto err;
 	}
-	
+
 	response = sock_context_new(&sock_ctx, daemon, id);
 	if (response != 0)
 		goto err;
@@ -769,7 +769,7 @@ void setsockopt_cb(daemon_context* ctx, unsigned long id, int level,
 	return;
 }
 
-void getsockopt_cb(daemon_context* daemon, 
+void getsockopt_cb(daemon_context* daemon,
 		unsigned long id, int level, int option) {
 
 	sock_context* sock_ctx;
@@ -829,6 +829,9 @@ void getsockopt_cb(daemon_context* daemon,
 	case TLS_TRUSTED_PEER_CERTIFICATES:
 	case TLS_PRIVATE_KEY:
 	case TLS_DISABLE_CIPHER:
+	case TLS_NEGOTIATED_CIPHER:
+		response = get_last_negotiated(conn, &data, &len); //FIXME handle errors and freeing memory
+		break;
 	case TLS_REQUEST_PEER_AUTH:
 		response = -ENOPROTOOPT; /* all set only */
 		break;
@@ -982,7 +985,7 @@ void connect_cb(daemon_context* daemon, unsigned long id,
 	if (response != 0)
 		goto err;
 
-	ret = bufferevent_socket_connect(conn->secure.bev, rem_addr, rem_addrlen);
+	ret = bufferevent_socket_connect(conn->secure, rem_addr, rem_addrlen);
 	if (ret != 0) {
 		response = -EVUTIL_SOCKET_ERROR();
 		goto err;
@@ -1000,7 +1003,7 @@ void connect_cb(daemon_context* daemon, unsigned long id,
 	}
 	return;
  err:
-	
+
 	if (sock_ctx != NULL) {
 		connection_shutdown(sock_ctx);
 		conn->state = CONN_ERROR;
