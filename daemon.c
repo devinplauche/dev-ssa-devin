@@ -732,7 +732,6 @@ void setsockopt_cb(daemon_context* ctx, unsigned long id, int level,
 	case TLS_DISABLE_CIPHER:
 		response = disable_cipher(sock_ctx->conn, (char*) value);
 		break;
-
 	case TLS_TRUSTED_PEER_CERTIFICATES:
 		response = set_trusted_CA_certificates(sock_ctx->conn, (char*) value);
 		break;
@@ -756,6 +755,10 @@ void setsockopt_cb(daemon_context* ctx, unsigned long id, int level,
 	case TLS_ERROR:
 	case TLS_HOSTNAME:
 	case TLS_TRUSTED_CIPHERS:
+	case TLS_NEGOTIATED_CIPHER:
+	case TLS_ENABLE_CIPHER:
+		response = enable_cipher(sock_ctx->conn, (char*) value);
+		break;
 	case TLS_ID:
 		response = -ENOPROTOOPT; /* all get only */
 		break;
@@ -831,7 +834,10 @@ void getsockopt_cb(daemon_context* daemon,
 	case TLS_DISABLE_CIPHER:
 	case TLS_NEGOTIATED_CIPHER:
 		response = get_last_negotiated(conn, &data, &len); //FIXME handle errors and freeing memory
+		if(response == 0)
+			need_free = 1;
 		break;
+	case TLS_ENABLE_CIPHER:
 	case TLS_REQUEST_PEER_AUTH:
 		response = -ENOPROTOOPT; /* all set only */
 		break;
@@ -985,7 +991,7 @@ void connect_cb(daemon_context* daemon, unsigned long id,
 	if (response != 0)
 		goto err;
 
-	ret = bufferevent_socket_connect(conn->secure, rem_addr, rem_addrlen);
+	ret = bufferevent_socket_connect((conn->secure).bev, rem_addr, rem_addrlen); //FIXME modified 1st argument causing errors
 	if (ret != 0) {
 		response = -EVUTIL_SOCKET_ERROR();
 		goto err;

@@ -25,7 +25,8 @@
 #define TLS_CLIENT_CONNECTION             98
 #define TLS_SERVER_CONNECTION             99
 #define TLS_ERROR                        100
-#define TLS_NEGOTIATED_CIPHER            101 //is 101 Ok?
+#define TLS_NEGOTIATED_CIPHER            101 
+#define TLS_ENABLE_CIPHER                102
 
 /* TCP options */
 #define TCP_UPGRADE_TLS         33

@@ -14,7 +14,6 @@
 
 #define UBUNTU_DEFAULT_CA "/etc/ssl/certs/ca-certificates.crt"
 #define FEDORA_DEFAULT_CA "/etc/pki/tls/certs/ca-bundle.crt"
-#define MAX_CIPHER_SUITE_STRING 100 //check size
 
 int concat_ciphers(char** list, int num, char** out);
 
@@ -24,10 +23,9 @@ int get_ciphers_strlen(STACK_OF(SSL_CIPHER)* ciphers);
 int get_ciphers_string(STACK_OF(SSL_CIPHER)* ciphers, char* buf, int buf_len);
 int check_key_cert_pair(SSL* tls);
 
-int set_last_negotiated(char* just_negotiated);//FIXME
-int is_valid_cipher_string(char* cipher_string);
-int load_either(connection* conn);
-char last_negotiated[MAX_CIPHER_SUITE_STRING];
+int is_valid_cipher_string(connection* conn, char* cipher_string);
+int load_either(connection* conn, char* data);
+
 /**
  *******************************************************************************
  *                           COMMON CONFIG LOADING FUNCTIONS
@@ -399,7 +397,39 @@ int get_enabled_ciphers(connection* conn, char** data, unsigned int* len) {
 	*data = ciphers_str;
 	return 0;
 }
+/**
+* get function
+* @returns last_negotiated last negotiated cipher
+*/
+int get_last_negotiated(connection* conn, char** data, unsigned int* len) {
+	SSL* ssl = (conn->tls);
+	const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl);
+  const char* cipher_name = SSL_CIPHER_get_name(cipher);
 
+
+
+	if(cipher_name != NULL) {
+		char* cipher_str = "";
+		unsigned int cipher_len = strlen(cipher_name);
+		if(cipher_len == 0) {
+			return 0;
+		}
+		cipher_str = (char*) malloc(cipher_len + 1);
+		if (cipher_str == NULL) {
+			return -1;
+		}
+
+		strcpy(cipher_str, cipher_name);
+		*data = cipher_str;
+		*len = cipher_len + 1;
+
+		log_printf(LOG_DEBUG, "Negotiated cipher: %s\n", cipher_str);
+		return 0;
+	}
+	else {
+		return -1;
+	}
+}
 /*
  *******************************************************************************
  *                           SETSOCKOPT FUNCTIONS
@@ -592,43 +622,38 @@ int disable_cipher(connection* conn, char* cipher) {
 	return 0;
 }
 
-
-/**
-* Allows the user to select an allowed cipher from configuration file for session
-* @param requested_cipher the cipher to request
-* @return 0 on success, -1 on error
+/*
+* enables cipher
+* @param conn the connection
+* @param cipher cipher to be reenabled
+* @return 0 on success, -1 on failure
 */
-int request_cipher(connection* conn, char* cipher_string) {
-	
-}
+int enable_cipher(connection* conn, char* cipher) {
+	char* data;
+	unsigned int len;
+	get_enabled_ciphers(conn, &data, &len);
+	log_printf(LOG_INFO, "Cipher to enable: %s\n", cipher);
+	char cipher_division[2] = ":"; //find different size //grab from enabled ciphers
 
+	if(cipher[0] != '-' && cipher[0] != '!') { //check in middle of string as well
+		strcat(cipher_division, cipher);
+		strcat(data, cipher_division);
+		//strcpy(cipher, data);
 
-/**
-* instead of deleting from list, temproarily disables cipher by appending character to front
-*	@param conn the connection
-* @param cipher to be disabled
-* @returns 0 on succss, -1 on Error
-*/
-int remove_cipher(connection* conn, char* cipher) {
-	char non_permanent_disable[2] = "-";
-	//check allowed cipher
-	if(cipher[0] != '-' && cipher[0] != '!') {
-		strcat(non_permanent_disable, cipher);
-		load_either(conn);
-		return 0;
-	}
-	else if(cipher[0] == '+') {
-		cipher[0] = '-'; //disables cipher moved to end of list
-		load_either(conn);
-		return 0;
-	}
-	else {
-		log_printf(LOG_ERROR, "Cipher already disabled.\n");
+		log_printf(LOG_INFO, "Cipher after append: %s\n", data);
+		
 		return -1;
 	}
-
+	else {
+		log_printf(LOG_ERROR, "Please use TLS_DISABLE_CIPHER to disable cipher.\n");
+		return 0;
+	}*/
+	int ret = load_either(conn, cipher);
+	char* data1;
+	unsigned int len1;
+	get_enabled_ciphers(conn, &data1, &len1);
+	return ret;
 }
-
 /*
  *******************************************************************************
  *                             HELPER FUNCTIONS
@@ -734,51 +759,42 @@ int check_key_cert_pair(SSL* tls) {
 	return -EPROTO; /* Protocol err--key didn't match or chain didn't build */
 }
 
-/**
-* set function
-*/
-void set_last_negotiated(char* just_negotiated) { //FIXME find some way to make private
-	last_negotiated[0] = '\0'; //clears string
-	strcpy(last_negotiated, just_negotiated);
-}
-/**
-* get function
-* @returns last_negotiated last negotiated cipher
-*/
-int get_last_negotiated(connection* conn, char** data, unsigned int* len) {
-	SSL* ssl = (conn->tls);
-	const SSL_SESSION *sess = SSL_get_session(ssl); //FIXME increment, put in callback? //need to decode object?
-	const SSL_CIPHER* cipher = SSL_SESSION_get0_cipher(sess); //should not be released
-	char* cipher_name = (cipher->name);
-
-	if(cipher_name != NULL) {
-		*data = cipher_name;
-		*len = strlen(cipher_name) + 1; //null terminate
-		return 0;
-	}
-	else {
-		return -1;
-	}
-}
 
 /**
 * Detects SSL version and loads ciphersuites appropiately
 * @param ssl SSL object used in connection_new
 * @returns 0 on success, -1 on failure
 */
-int load_either(connection* conn) {
-	char* data;
-	unsigned int len = 0;
+int load_either(connection* conn, char* data) { //FIXME find out how they are setting this
 	SSL* ssl = (conn->tls);
-	SSL_CTX* ctx = SSL_get_SSL_CTX(ssl);
 	long version = SSL_version(ssl);
 	if(version == TLS1_3_VERSION) {
-		get_enabled_ciphers(conn, &data, &len);
-		load_ciphersuites(ctx, &data, len);
+		log_printf(LOG_DEBUG, "Started loading data (1.3)\n");
+		/*if(SSL_CTX_set_ciphersuites(ctx, data) == 1) {
+			log_printf(LOG_INFO, "successful ctx update\n");
+		}*/
+		if(SSL_set_ciphersuites(ssl, data) == 1) {
+			log_printf(LOG_DEBUG, "Successful SSL cipher update\n");
+			return 0;
+		}
+		else {
+			log_printf(LOG_DEBUG, "Failed SSL cipher update\n");
+			return -1;
+		}
 		return 0;
-	} else if(version == TLS1_2_VERSION){ /* TODO only allow TLS1_2_VERSION? */
-		get_enabled_ciphers(conn, &data, &len);
-		load_cipher_list(ctx, &data, len);
+	} else if(version == TLS1_2_VERSION) {
+		log_printf(LOG_DEBUG, "Started loading data: (1.2)\n");
+		/*if(SSL_CTX_set_cipher_list(ctx, data) == 1) {
+			log_printf(LOG_INFO, "successful ctx update\n");
+		}*/
+		if(SSL_set_cipher_list(ssl, data) == 1) {
+			log_printf(LOG_DEBUG, "Successful SSL cipher update\n");
+			return 0;
+		}
+		else {
+			log_printf(LOG_DEBUG, "Failed SSL cipher update\n");
+			return -1;
+		}
 		return 0;
 	}
 	else {
@@ -792,44 +808,24 @@ int load_either(connection* conn) {
 * Checks if requested cipher is a valid cipher string
 * @param cipher_string the string to be checked
 * @returns  1 for success, 0 for failure, (boolean values)
-*//*
-int is_valid_cipher_string(char* cipher_string) { //use stdbool?
+*/
+int is_valid_cipher_string(connection* conn, char* cipher_string) { //use stdbool?
 	char colon[2] = ":"; //also check if it exists in cipherstring
 
-	if(strstr(cipher_string, colon) == NULL) {
-		return 1;
+	if(strstr(cipher_string, colon) == NULL) { //only one cipher
+		char* data;
+		unsigned int len;
+		get_enabled_ciphers(conn, &data, &len);
+		if(strstr(data, cipher_string) != NULL) {
+			return 1;
+		}
+		else {
+			log_printf(LOG_ERROR, "Invalid cipher string: %s.\n", cipher_string);
+			return 0;
+		}
 	}
 	else {
-		log_printf(LOG_ERROR, "Invalid cipher string.\n");
+		log_printf(LOG_ERROR, "Invalid cipher string: %s.\n", cipher_string);
 		return 0;
 	}
 }
-*/
-/**
-* Moves cipher to front of cipher string (affects preference on some systems)
-*	@param cipher the cipher to be moved to the front of the String
-* @param cipherlist list of ciphers
-*/
-/*
-int set_preferred(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist) { //don't confuse list with suite
-int ret = 0;
-	ret = clear_from_cipherlist(cipher, cipherlist);
-	if(ret != 0) { //check error codes
-		return -1;
-	}
-	char* enabled_ciphers; //use malloc
-	ret = get_ciphers_string(cipherlist, enabled_ciphers, 10000); //FIXME replace last argument with macro
-	if(ret != 0) {
-		return -1;
-	}
-	char colon[2] = ":";
-	strcat(cipher,colon);
-	strcat(cipher, enabled_ciphers);
-	long version = get_tls_version(TLS1_2_VERSION); //find a way to get tls version being currently used
-
-	ret = SSL_CTX_set_cipher_list(cipher); //FIXME check to set cipher list or cipher suites use a get TLS version
-	if(ret != 0) {
-		return -1;
-	}
-	return ret;
-}*/

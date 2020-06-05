@@ -47,5 +47,7 @@ int get_last_negotiated(connection* conn, char** data, unsigned int* len);
 int set_connection_type(connection* conn, daemon_context* daemon, int type);
 int set_trusted_CA_certificates(connection* conn, char* path);
 int disable_cipher(connection* conn, char* cipher);
+int remove_cipher(connection* conn, char* cipher);
+int enable_cipher(connection* conn, char* cipher);
 int set_certificate_chain(connection* conn, char* path);
 int set_private_key(connection* conn, char* path);

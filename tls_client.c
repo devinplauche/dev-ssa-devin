@@ -25,13 +25,15 @@
 							"ECDHE-ECDSA-CHACHA20-POLY1305:"  \
 							"ECDHE-RSA-CHACHA20-POLY1305:"    \
 							"ECDHE-ECDSA-AES128-GCM-SHA256:"  \
-							"ECDHE-RSA-AES128-GCM-SHA256"
+							"ECDHE-RSA-AES128-GCM-SHA256:"    \
+							"!SSLv3:!TLSv1:!TLSv1.1:!LOW:!eNULL!aNULL:!RC4:!MD4:!MD5"      //changed
+						
 
 #define DEFAULT_CIPHERSUITES "TLS_AES_256_GCM_SHA384:"       \
                              "TLS_AES_128_GCM_SHA256:"       \
-							 "TLS_CHACHA20_POLY1305_SHA256:" \
-							 "TLS_AES_128_CCM_SHA256:"       \
-							 "TLS_AES_128_CCM_8_SHA256"
+							 "TLS_CHACHA20_POLY1305_SHA256:"
+							 //"TLS_AES_128_CCM_SHA256:"       \ //changed
+							// "TLS_AES_128_CCM_8_SHA256"
 
 
 
@@ -70,7 +72,7 @@ SSL_CTX* client_ctx_init(client_settings* config) {
 		SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION);
 
 	tls_version = get_tls_version(config->min_tls_version);
-	if (SSL_CTX_set_min_proto_version(ctx, tls_version) != 1) 
+	if (SSL_CTX_set_min_proto_version(ctx, tls_version) != 1)
 		goto err;
 
 	tls_version = get_tls_version(config->max_tls_version);
@@ -79,17 +81,17 @@ SSL_CTX* client_ctx_init(client_settings* config) {
 
 
 	if (config->cipher_list_cnt > 0) {
-		ret = load_cipher_list(ctx, 
+		ret = load_cipher_list(ctx,
 				config->cipher_list, config->cipher_list_cnt);
 	} else {
 		ret = SSL_CTX_set_cipher_list(ctx, DEFAULT_CIPHER_LIST);
 	}
 	if (ret != 1)
 		goto err;
-	
+
 
 	if (config->ciphersuite_cnt > 0) {
-		ret = load_ciphersuites(ctx, 
+		ret = load_ciphersuites(ctx,
 				config->ciphersuites, config->ciphersuite_cnt);
 	} else {
 		ret = SSL_CTX_set_ciphersuites(ctx, DEFAULT_CIPHERSUITES);
@@ -109,7 +111,7 @@ SSL_CTX* client_ctx_init(client_settings* config) {
 	if (ERR_peek_error())
 		log_printf(LOG_ERROR, "OpenSSL error initializing client SSL_CTX: %s\n",
 				ERR_error_string(ERR_get_error(), NULL));
-	
+
 	if (ctx != NULL)
 		SSL_CTX_free(ctx);
     return NULL;
@@ -129,21 +131,21 @@ SSL_CTX* client_ctx_init_default() {
 		goto err;
 
 	SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
-	SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION 
+	SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION
 			| SSL_OP_NO_TICKET);
 
 	ret = SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
 	if (ret != 1)
 		goto err;
-	
+
 	ret = SSL_CTX_set_max_proto_version(ctx, TLS_MAX_VERSION);
 	if (ret != 1)
 		goto err;
-	
+
 	ret = SSL_CTX_set_ciphersuites(ctx, DEFAULT_CIPHERSUITES);
 	if (ret != 1)
 		goto err;
-	
+
 	ret = SSL_CTX_set_cipher_list(ctx, DEFAULT_CIPHER_LIST);
 	if (ret != 1)
 		goto err;
