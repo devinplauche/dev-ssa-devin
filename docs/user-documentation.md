@@ -392,7 +392,7 @@ Here we give a sample of the socket options and their purpose that can be given 
 | TLS_ALPN | Used to indicate a list of IANA-registered protocols for Application-Layer Protocol Negotiation (e.g., HTTP/2), in descending order of preference.  This option can be fetched after `connect`/`accept` to determine the selected protocol.      |
 | TLS_SESSION_TTL | Request that the SSA expire sessions after the given number of seconds.   A value of zero disables session caching entirely.      |
 | TLS_DISABLE_CIPHER | Request that the underlying TLS connection not use the specified cipher      |
-| TLS_ENABLE_CIPHER | Sets cipherlist for current socket     |
+| TLS_ENABLE_CIPHER | Adds specified ciphers to SSL connection     |
 | TLS_NEGOTIATED_CIPHER | Get cipher used in current SSL connection.      |
 | TLS_TRUSTED_CIPHERS | Gets all ciphers currently enabled.      |
 | TLS_PEER_IDENTITY | Request the identity of remote peer as indicated by the peer’s certificate.     |

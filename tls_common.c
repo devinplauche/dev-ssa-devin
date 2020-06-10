@@ -23,6 +23,11 @@ int get_ciphers_strlen(STACK_OF(SSL_CIPHER)* ciphers);
 int get_ciphers_string(STACK_OF(SSL_CIPHER)* ciphers, char* buf, int buf_len);
 int check_key_cert_pair(SSL* tls);
 
+int append_to_cipherstring(char* cipher, char** data);
+int get_ciphersuite_string(STACK_OF(SSL_CIPHER)* ciphers, char** buf, unsigned int* buf_len);
+int get_ciphersuites(connection* conn, char** data, unsigned int* len);
+int get_cipher_list_string(connection* conn, char** buf, unsigned int* buf_len);
+int get_cipher_list(connection* conn, char** data, unsigned int* len);
 int is_valid_cipher_string(connection* conn, char* cipher_string);
 int load_either(connection* conn, char* data);
 
@@ -373,7 +378,8 @@ int get_enabled_ciphers(connection* conn, char** data, unsigned int* len) {
 	char* ciphers_str = "";
 
 
-	STACK_OF(SSL_CIPHER)* ciphers = SSL_get_ciphers(conn->tls);
+	//STACK_OF(SSL_CIPHER)* ciphers = SSL_get_ciphers(conn->tls);
+	STACK_OF(SSL_CIPHER)* ciphers = SSL_get1_supported_ciphers(conn->tls);
 	/* TODO: replace this with SSL_get1_supported_ciphers? Maybe... */
 	if (ciphers == NULL)
 		goto end; /* no ciphers available; just return NULL. */
@@ -629,26 +635,35 @@ int disable_cipher(connection* conn, char* cipher) {
 * @return 0 on success, -1 on failure
 */
 int enable_cipher(connection* conn, char* cipher) {
+	SSL* ssl = (conn->tls);
 	char* data;
 	unsigned int len;
-	get_enabled_ciphers(conn, &data, &len);
-	log_printf(LOG_INFO, "Cipher to enable: %s\n", cipher);
-	char cipher_division[2] = ":"; //find different size //grab from enabled ciphers
-
-	if(cipher[0] != '-' && cipher[0] != '!') { //check in middle of string as well
-		strcat(cipher_division, cipher);
-		strcat(data, cipher_division);
-		//strcpy(cipher, data);
-
-		log_printf(LOG_INFO, "Cipher after append: %s\n", data);
-		
-		return -1;
+	int ret;
+	if(strstr(cipher, "TLS_")) {
+		get_ciphersuites(conn, &data, &len);
+		append_to_cipherstring(cipher, &data);
+		if(SSL_set_ciphersuites(ssl, data) == 1) {
+			log_printf(LOG_DEBUG, "Successful SSL ciphersuite update\n");
+			return 0;
+		}
+		else {
+			log_printf(LOG_DEBUG, "Failed SSL ciphersuite update\n");
+			return -1;
+		}
 	}
 	else {
-		log_printf(LOG_ERROR, "Please use TLS_DISABLE_CIPHER to disable cipher.\n");
-		return 0;
-	}*/
-	int ret = load_either(conn, cipher);
+		get_cipher_list_string(conn, &data, &len);
+		append_to_cipherstring(cipher, &data);
+		if(SSL_set_cipher_list(ssl, data) == 1) {
+			log_printf(LOG_DEBUG, "Successful SSL cipherlist update\n");
+			return 0;
+		}
+		else {
+			log_printf(LOG_DEBUG, "Failed SSL cipherlist update\n");
+			return -1;
+		}
+	}
+
 	char* data1;
 	unsigned int len1;
 	get_enabled_ciphers(conn, &data1, &len1);
@@ -759,73 +774,104 @@ int check_key_cert_pair(SSL* tls) {
 	return -EPROTO; /* Protocol err--key didn't match or chain didn't build */
 }
 
-
 /**
-* Detects SSL version and loads ciphersuites appropiately
-* @param ssl SSL object used in connection_new
-* @returns 0 on success, -1 on failure
+* helper function for SSL_get_ciphers to sort by version 1.3 or 1.2
+*	conn associated connection object
+* returns 0 on success, -1 on failure
 */
-int load_either(connection* conn, char* data) { //FIXME find out how they are setting this
-	SSL* ssl = (conn->tls);
-	long version = SSL_version(ssl);
-	if(version == TLS1_3_VERSION) {
-		log_printf(LOG_DEBUG, "Started loading data (1.3)\n");
-		/*if(SSL_CTX_set_ciphersuites(ctx, data) == 1) {
-			log_printf(LOG_INFO, "successful ctx update\n");
-		}*/
-		if(SSL_set_ciphersuites(ssl, data) == 1) {
-			log_printf(LOG_DEBUG, "Successful SSL cipher update\n");
-			return 0;
-		}
-		else {
-			log_printf(LOG_DEBUG, "Failed SSL cipher update\n");
-			return -1;
-		}
-		return 0;
-	} else if(version == TLS1_2_VERSION) {
-		log_printf(LOG_DEBUG, "Started loading data: (1.2)\n");
-		/*if(SSL_CTX_set_cipher_list(ctx, data) == 1) {
-			log_printf(LOG_INFO, "successful ctx update\n");
-		}*/
-		if(SSL_set_cipher_list(ssl, data) == 1) {
-			log_printf(LOG_DEBUG, "Successful SSL cipher update\n");
-			return 0;
-		}
-		else {
-			log_printf(LOG_DEBUG, "Failed SSL cipher update\n");
-			return -1;
-		}
-		return 0;
-	}
-	else {
-		log_printf(LOG_ERROR, "TLS version too low\n");
-		return -1;
-	}
+int get_ciphersuites(connection* conn, char** data, unsigned int* len) {
+
+	STACK_OF(SSL_CIPHER)* cipherlist = SSL_get1_supported_ciphers(conn->tls);
+	//int ciphers_len = get_ciphers_strlen(cipherlist);
+	*data = "";
+	*data = malloc(150); //max size for a cipheruite string
+	return get_ciphersuite_string(cipherlist, data, len); //find better way to get length
 }
 
-
 /**
-* Checks if requested cipher is a valid cipher string
-* @param cipher_string the string to be checked
-* @returns  1 for success, 0 for failure, (boolean values)
+* makes stack of ciphers into a string of ciphersuites
+* ciphers stack of all ciphers associated with ssl object
+* buf buffer to store resulting string
+* buf_len keeps track of string length
 */
-int is_valid_cipher_string(connection* conn, char* cipher_string) { //use stdbool?
-	char colon[2] = ":"; //also check if it exists in cipherstring
+int get_ciphersuite_string(STACK_OF(SSL_CIPHER)* ciphers, char** buf, unsigned int* buf_len) { //FIXME rename buf
+	int index = 0;
+	char* ciphersuites = *buf;
 
-	if(strstr(cipher_string, colon) == NULL) { //only one cipher
-		char* data;
-		unsigned int len;
-		get_enabled_ciphers(conn, &data, &len);
-		if(strstr(data, cipher_string) != NULL) {
-			return 1;
+	for (int i = 0; i < sk_SSL_CIPHER_num(ciphers); i++) {
+		const SSL_CIPHER* curr = sk_SSL_CIPHER_value(ciphers, i);
+		const char* name = SSL_CIPHER_get_name(curr);
+		char* namecpy = malloc(strlen(name) + 1);
+		strcpy(namecpy, name);
+
+		if (strstr(namecpy, "TLS_") != NULL) {
+			log_printf(LOG_INFO, "Name: %s\n", namecpy);
+			strcpy(&ciphersuites[index], name);
+			index += strlen(name);
+			ciphersuites[index] = ':';
+			index += 1;
 		}
 		else {
-			log_printf(LOG_ERROR, "Invalid cipher string: %s.\n", cipher_string);
-			return 0;
+			log_printf(LOG_INFO, "Finished reading 1.3 ciphersuites\n");
+			break;
 		}
 	}
-	else {
-		log_printf(LOG_ERROR, "Invalid cipher string: %s.\n", cipher_string);
+
+	ciphersuites[index - 1] = '\0'; /* change last ':' to '\0' */
+	*buf_len = strlen(*buf) + 1;
+	return 0;
+}
+
+/**
+* sorts ciphers associated with ssl object for TLS version 1.2 and beneath
+* conn associated connection
+*	buf buffer to store data
+* buf_len keeps track of buffer length
+*/
+int get_cipher_list_string(connection* conn, char** buf, unsigned int* buf_len) {
+	STACK_OF(SSL_CIPHER)* cipherlist = SSL_get1_supported_ciphers(conn->tls);
+	int ciphers_len = get_ciphers_strlen(cipherlist);
+	*buf = "";
+	*buf = malloc(ciphers_len);
+	int i = 0;
+	while (i < sk_SSL_CIPHER_num(cipherlist)) {
+		const SSL_CIPHER* curr_cipher = sk_SSL_CIPHER_value(cipherlist, i);
+		const char* name = SSL_CIPHER_get_name(curr_cipher);
+		if (strstr(name, "TLS_") == NULL) {
+			log_printf(LOG_INFO, "Name: %s\n", name);
+			char* data;
+			unsigned int len;
+			get_enabled_ciphers(conn, &data, &len); //find good priority level
+			log_printf(LOG_INFO, "Ciphers: %s\n", data);
+			*buf = strstr(data, name); //?strcpy to non const?
+			log_printf(LOG_INFO, "Cipherlist: %s\n", *buf);
+			*buf_len = strlen(*buf) + 1;
+			return 0;
+		}
+		i++;
+	}
+	return -1;
+}
+/**
+* appends given cipher to cipherlist in data
+* cipher specific cipher as a string
+* data pointer to cipherstring that contains cipher
+*/
+int append_to_cipherstring(char* cipher, char** data) {
+	char cipher_division[2] = ":";
+	if(cipher[0] != '-' && cipher[0] != '!') { //won't occur in tls 1.3
+
+		strcat(cipher, cipher_division);
+		log_printf(LOG_INFO, "Cipher to enable: %s\n", cipher);
+		char cipher_list[400]; //change size to datalen + strlen of cipher + cipher_division
+
+		strcpy(cipher_list, cipher);
+		strcat(cipher_list, *data);
+		log_printf(LOG_INFO, "Cipher after append: %s\n", cipher_list);
 		return 0;
+	}
+	else {
+		log_printf(LOG_ERROR, "Please use TLS_DISABLE_CIPHER to disable cipher.\n");
+		return -1;
 	}
 }
