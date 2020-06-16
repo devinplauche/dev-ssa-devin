@@ -643,7 +643,7 @@ int enable_cipher(connection* conn, char* cipher) {
 		get_ciphersuites(conn, &data, &len);
 		append_to_cipherstring(cipher, &data);
 		if(SSL_set_ciphersuites(ssl, data) == 1) {
-			log_printf(LOG_DEBUG, "Successful SSL ciphersuite update\n");
+			log_printf(LOG_DEBUG, "Successful SSL ciphersuite update %s\n", data);
 			return 0;
 		}
 		else {
@@ -655,6 +655,8 @@ int enable_cipher(connection* conn, char* cipher) {
 		get_cipher_list_string(conn, &data, &len);
 		append_to_cipherstring(cipher, &data);
 		//disable insecure ciphers here
+		char* blacklist = DISABLE_INSECURE_CIPHERS;
+		strcat(data, blacklist);
 		if(SSL_set_cipher_list(ssl, data) == 1) {
 			log_printf(LOG_DEBUG, "Successful SSL cipherlist update\n %s\n", data);
 			return 0;
@@ -864,13 +866,12 @@ int append_to_cipherstring(char* cipher, char** data) {
 
 		strcat(cipher, cipher_division);
 		log_printf(LOG_INFO, "Cipher to enable: %s\n", cipher);
-		char* blacklist = DISABLE_INSECURE_CIPHERS;
-		char* cipher_list = malloc(strlen(*data) + strlen(blacklist) + strlen(cipher) + 2);
-		 // datalen + strlen of cipher +  blacklist + cipher_division + null
+		char* cipher_list = malloc(strlen(*data) + 100 + strlen(cipher) + 2);
+		 // datalen + strlen of cipher + black list + cipher_division + null
 
 		strcpy(cipher_list, cipher);
 		strcat(cipher_list, *data);
-		strcat(cipher_list, blacklist);
+
 		*data = cipher_list;
 		log_printf(LOG_INFO, "Cipher after append: %s\n", *data);
 		return 0;
