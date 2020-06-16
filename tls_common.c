@@ -14,7 +14,7 @@
 
 #define UBUNTU_DEFAULT_CA "/etc/ssl/certs/ca-certificates.crt"
 #define FEDORA_DEFAULT_CA "/etc/pki/tls/certs/ca-bundle.crt"
-
+#define DISABLE_INSECURE_CIPHERS ":!SSLv3:!TLSv1:!TLSv1.1:!eNULL:!aNULL:!RC4:!MD4:!MD5"
 int concat_ciphers(char** list, int num, char** out);
 
 int clear_from_cipherlist(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist);
@@ -654,8 +654,9 @@ int enable_cipher(connection* conn, char* cipher) {
 	else {
 		get_cipher_list_string(conn, &data, &len);
 		append_to_cipherstring(cipher, &data);
+		//disable insecure ciphers here
 		if(SSL_set_cipher_list(ssl, data) == 1) {
-			log_printf(LOG_DEBUG, "Successful SSL cipherlist update\n");
+			log_printf(LOG_DEBUG, "Successful SSL cipherlist update\n %s\n", data);
 			return 0;
 		}
 		else {
@@ -863,11 +864,15 @@ int append_to_cipherstring(char* cipher, char** data) {
 
 		strcat(cipher, cipher_division);
 		log_printf(LOG_INFO, "Cipher to enable: %s\n", cipher);
-		char cipher_list[400]; //change size to datalen + strlen of cipher + cipher_division
+		char* blacklist = DISABLE_INSECURE_CIPHERS;
+		char* cipher_list = malloc(strlen(*data) + strlen(blacklist) + strlen(cipher) + 2);
+		 // datalen + strlen of cipher +  blacklist + cipher_division + null
 
 		strcpy(cipher_list, cipher);
 		strcat(cipher_list, *data);
-		log_printf(LOG_INFO, "Cipher after append: %s\n", cipher_list);
+		strcat(cipher_list, blacklist);
+		*data = cipher_list;
+		log_printf(LOG_INFO, "Cipher after append: %s\n", *data);
 		return 0;
 	}
 	else {
