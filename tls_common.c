@@ -617,11 +617,24 @@ int set_trusted_CA_certificates(connection* conn, char* path) {
 
 int disable_cipher(connection* conn, char* cipher) {
 
-	STACK_OF(SSL_CIPHER)* cipherlist = SSL_get_ciphers(conn->tls);
+	STACK_OF(SSL_CIPHER)* cipherlist = SSL_get1_supported_ciphers(conn->tls);
 	if (cipherlist == NULL)
 		return -EINVAL;
+	const char delimiter[2] = ":";
+	int ret = 0;
+	/* TODO put logic into helper function */
+	if(strstr(cipher,delimiter) != NULL) {
+		char* cipher_token = strtok(cipher, delimiter);
+		while (cipher_token != NULL) {
+			disable_cipher(conn, cipher_token); //best way? //FIXME handle errors
+			log_printf(LOG_DEBUG, "Parsed cipher: %s %d\n", cipher_token, ret);
+			cipher_token = strtok(NULL, delimiter);
 
-	int ret = clear_from_cipherlist(cipher, cipherlist);
+		}
+	}
+	else {
+		ret = clear_from_cipherlist(cipher, cipherlist);\
+	}
 	if (ret != 0)
 		return -EINVAL;
 
@@ -654,7 +667,6 @@ int enable_cipher(connection* conn, char* cipher) {
 	else {
 		get_cipher_list_string(conn, &data, &len);
 		append_to_cipherstring(cipher, &data);
-		//disable insecure ciphers here
 		char* blacklist = DISABLE_INSECURE_CIPHERS;
 		strcat(data, blacklist);
 		if(SSL_set_cipher_list(ssl, data) == 1) {
@@ -877,7 +889,7 @@ int append_to_cipherstring(char* cipher, char** data) {
 		return 0;
 	}
 	else {
-		log_printf(LOG_ERROR, "Please use TLS_DISABLE_CIPHER to disable cipher.\n");
+		log_printf(LOG_ERROR, "Please use TLS_DISABLE_CIPHER to disable cipher.\n"); //change, seen by developers only
 		return -1;
 	}
 }
