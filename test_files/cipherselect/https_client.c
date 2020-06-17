@@ -78,9 +78,11 @@ int connect_to_host(char* host, char* service) {
 			close(sock);
 			continue;
 		}
+		
 		char cipher[] = "TLS_AES_256_GCM_SHA384";
+		char cipher1[] = "ECDHE-RSA-AES256-GCM-SHA384";
 		char bad_cipher[] = "NULL-MD5";
-		char two_ciphers[] = "TLS_AES_128_CCM_SHA256:TLS_AES_128_CCM_8_SHA256";
+		char two_ciphers[] = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
 		char good_and_bad[] = "NULL-MD5:ECDHE-RSA-AES256-GCM-SHA384";
     if (setsockopt(sock, IPPROTO_TLS, TLS_DISABLE_CIPHER, two_ciphers, strlen(two_ciphers)+1) == -1) {
       perror("setsockopt: TLS_DISABLE_CIPHER");
@@ -88,19 +90,12 @@ int connect_to_host(char* host, char* service) {
       continue;
     }
 
-		/*char cipher1[] = "ECDHE-RSA-AES256-GCM-SHA384";
-    if (setsockopt(sock, IPPROTO_TLS, TLS_DISABLE_CIPHER, cipher1, strlen(cipher1)+1) == -1) {
-      perror("setsockopt: TLS_DISABLE_CIPHER");
-      close(sock);
-      continue;
-    }*/
 
-
-    if (setsockopt(sock, IPPROTO_TLS, TLS_ENABLE_CIPHER, two_ciphers, strlen(two_ciphers) + 1) == -1) {
+    /*if (setsockopt(sock, IPPROTO_TLS, TLS_ENABLE_CIPHER, two_ciphers, strlen(two_ciphers) + 1) == -1) {
       perror("setsockopt: TLS_ENABLE_CIPHER");
       close(sock);
       continue;
-    }
+    }*/
 
 		if (connect(sock, addr_ptr->ai_addr, addr_ptr->ai_addrlen) == -1) {
 			perror("connect");

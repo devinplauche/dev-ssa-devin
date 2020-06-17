@@ -79,7 +79,7 @@ SSL_CTX* client_ctx_init(client_settings* config) {
 
 
 	if (config->cipher_list_cnt > 0) {
-		SSL_CTX_set_cipher_list(ctx, DISABLE_INSECURE_CIPHERS); //add to server as well
+		SSL_CTX_set_cipher_list(ctx, DISABLE_INSECURE_CIPHERS); //add to server as well //FIXME add here ? or when changing?
 
 		ret = load_cipher_list(ctx,
 				config->cipher_list, config->cipher_list_cnt);
