@@ -14,10 +14,11 @@
 
 #define UBUNTU_DEFAULT_CA "/etc/ssl/certs/ca-certificates.crt"
 #define FEDORA_DEFAULT_CA "/etc/pki/tls/certs/ca-bundle.crt"
-#define DISABLE_INSECURE_CIPHERS ":!SSLv3:!TLSv1:!TLSv1.1:!eNULL:!aNULL:!RC4:!MD4:!MD5"
+#define DISABLE_INSECURE_CIPHERS ":!SSLv3:!TLSv1:!TLSv1.1:!LOW:!eNULL:!aNULL:!RC4:!MD4:!MD5" //disable low?
 int concat_ciphers(char** list, int num, char** out);
 
 int clear_from_cipherlist(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist);
+int delete_from_cipherlist(char* cipher, char** cipherlist);
 int set_preferred(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist); //HOLD
 int get_ciphers_strlen(STACK_OF(SSL_CIPHER)* ciphers);
 int get_ciphers_string(STACK_OF(SSL_CIPHER)* ciphers, char* buf, int buf_len);
@@ -739,7 +740,7 @@ int clear_from_cipherlist(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist) {
 		if (strcmp(name, cipher) == 0) {
 			has_cipher = 1;
 			sk_SSL_CIPHER_delete(cipherlist, i);
-			log_printf(LOG_DEBUG, "Deleted cipher: %s\n", cipher);
+			//log_printf(LOG_DEBUG, "Deleted cipher: %s\n", cipher);
 		} else {
 			i++;
 		}
@@ -786,7 +787,7 @@ int get_ciphersuites(connection* conn, char** data, unsigned int* len) {
 	STACK_OF(SSL_CIPHER)* cipherlist = SSL_get1_supported_ciphers(conn->tls);
 	//int ciphers_len = get_ciphers_strlen(cipherlist);
 	*data = "";
-	*data = malloc(150); //max size for a cipheruite string
+	*data = malloc(150); //max size for a ciphersuite string // make macro
 	return get_ciphersuite_string(cipherlist, data, len); //find better way to get length
 }
 
@@ -807,14 +808,14 @@ int get_ciphersuite_string(STACK_OF(SSL_CIPHER)* ciphers, char** buf, unsigned i
 		strcpy(namecpy, name);
 
 		if (strstr(namecpy, "TLS_") != NULL) {
-			log_printf(LOG_INFO, "Name: %s\n", namecpy);
+			//log_printf(LOG_INFO, "Name: %s\n", namecpy);
 			strcpy(&ciphersuites[index], name);
 			index += strlen(name);
 			ciphersuites[index] = ':';
 			index += 1;
 		}
 		else {
-			log_printf(LOG_INFO, "Finished reading 1.3 ciphersuites\n");
+			//log_printf(LOG_INFO, "Finished reading 1.3 ciphersuites\n");
 			break;
 		}
 	}
@@ -840,13 +841,13 @@ int get_cipher_list_string(connection* conn, char** buf, unsigned int* buf_len) 
 		const SSL_CIPHER* curr_cipher = sk_SSL_CIPHER_value(cipherlist, i);
 		const char* name = SSL_CIPHER_get_name(curr_cipher);
 		if (strstr(name, "TLS_") == NULL) {
-			log_printf(LOG_INFO, "Name: %s\n", name);
+			//log_printf(LOG_INFO, "Name: %s\n", name);
 			char* data;
 			unsigned int len;
 			get_enabled_ciphers(conn, &data, &len); //find good priority level
-			log_printf(LOG_INFO, "Ciphers: %s\n", data);
+			//log_printf(LOG_INFO, "Ciphers: %s\n", data);
 			*buf = strstr(data, name); //?strcpy to non const?
-			log_printf(LOG_INFO, "Cipherlist: %s\n", *buf);
+			//log_printf(LOG_INFO, "Cipherlist: %s\n", *buf);
 			*buf_len = strlen(*buf) + 1;
 			return 0;
 		}
@@ -864,7 +865,7 @@ int append_to_cipherstring(char* cipher, char** data) {
 	if(cipher[0] != '-' && cipher[0] != '!') { //won't occur in tls 1.3
 
 		strcat(cipher, cipher_division);
-		log_printf(LOG_INFO, "Cipher to enable: %s\n", cipher);
+		//log_printf(LOG_INFO, "Cipher to enable: %s\n", cipher);
 		char* cipher_list = malloc(strlen(*data) + 100 + strlen(cipher) + 2);
 		 // datalen + strlen of cipher + black list + cipher_division + null
 
@@ -881,8 +882,14 @@ int append_to_cipherstring(char* cipher, char** data) {
 	}
 }
 
+/**
+* Makes a new cipherstring without provided cipher
+* @param cipher cipher to be Deleted
+* @param cipherlist list to delete ciphers from
+* @return 0 on success error code on failure
+*/
 int delete_from_cipherlist(char* cipher, char** cipherlist) {
-	char* new_cipherlist = malloc(200);
+	char* new_cipherlist = malloc(strlen(*cipherlist) + 50);
 	new_cipherlist[0] = '\0';
 	int has_cipher = 0;
 	const char delimiter[2] = ":";
@@ -900,77 +907,86 @@ int delete_from_cipherlist(char* cipher, char** cipherlist) {
 		}
 
 		new_cipherlist[strlen(new_cipherlist) - 1] = '\0';
-		//log_printf(LOG_INFO, "cipher list: %s %d\n", new_cipherlist, strlen(new_cipherlist)); //pop_back on string
-
-	/* assert: all ciphers to remove now removed */
-	if (has_cipher){
 		*cipherlist = new_cipherlist;
+	/* assert: all ciphers to remove now removed */
+	if (has_cipher)
 		return 0;
-	}
 	else
 		return -1;
+
+}
+/**
+* Iterates through ciphers provided and deletes them
+*	@param cipher cipherstring (one or many ciphers) to be deleted
+* @param cipherlist list thet ciphers will be deleted from
+* @return
+*/
+int deletion_loop(char* cipher, char** cipherlist) { //return stats from deletion
+	log_printf(LOG_DEBUG, "Cipher %s\n", cipher);
+	const char delimiter[2] = ":";
+	log_printf(LOG_DEBUG, "Cipher list %s\n", cipher);
+	char* cipher_token = strtok(cipher, delimiter);
+
+	char** to_delete = malloc(strlen(*cipherlist));
+	int index = 0;
+	int ret = 0;
+	while (cipher_token != NULL) {
+			log_printf(LOG_DEBUG, "Cipher token %s\n", cipher_token);
+			to_delete[index] = cipher_token;
+			index++;
+			if(index >= 37) { //37 possible 1.2 ciphers
+				break;
+			}
+			cipher_token = strtok(NULL, delimiter);
+
+	}
+	for(int i = 0; i < index; i++) { //change max index size to 37 for TLS 1.2
+		log_printf(LOG_DEBUG, "Deleting cipher token %s\n", to_delete[i]);
+		ret = delete_from_cipherlist(to_delete[i], cipherlist);
+		if(ret == -1) {
+			return ret;
+		}
+	}
+	return ret;
 }
 /**
 * detects cipher version and loads appropiate cipher list
-* conn  connection object
-*	cipher cipher to load
-* returns 0 on success and -1 on failure
+* @param conn  connection object
+*	@param cipher cipher to load
+* @return 0 on success and -1 on failure
 */
 int disable_ciphers(connection* conn, char* cipher) { //replace disable_cipher eventually
+	log_printf(LOG_DEBUG, "Cipher passed in %s\n", cipher);
 	SSL* ssl = (conn->tls);
-	char* data;
+	char* cipherlist;
 	unsigned int len;
 	int ret;
 	if(strstr(cipher, "TLS_")) {
-		get_ciphersuites(conn, &data, &len);
-		//delete_from_cipherlist(cipher, &data);
-		log_printf(LOG_DEBUG, "Cipher %s\n", cipher);
-		const char delimiter[2] = ":";
-		char* cipher_token = strtok(cipher, delimiter);
-		//delete loop
-		char** to_delete = malloc(strlen(data));
-		int index = 0;
-		for(int i = 0; i < 5; i++){
+		get_ciphersuites(conn, &cipherlist, &len);
+		ret = deletion_loop(cipher, &cipherlist);
 
-		}
-		while (cipher_token != NULL) {
-				log_printf(LOG_DEBUG, "Cipher token %s\n", cipher_token);
-				to_delete[index] = cipher_token;
-				index++;
-				if(index >= 5) {
-					break;
-				}
-				cipher_token = strtok(NULL, delimiter);
-
-		}
-		for(int i = 0; i < index; i++) {
-			log_printf(LOG_DEBUG, "Deleting cipher token %s\n", to_delete[i]);
-			delete_from_cipherlist(to_delete[i], &data);
-		}
-
-		//end delete loop
-		if(SSL_set_ciphersuites(ssl, data) == 1) {
-			log_printf(LOG_DEBUG, "Successful SSL ciphersuite update %s\n", data);
-			return 0;
+		if(SSL_set_ciphersuites(ssl, cipherlist) == 1) {
+			//log_printf(LOG_DEBUG, "Successful SSL ciphersuite update %s\n", data);
+			ret = 0;
 		}
 		else {
-			log_printf(LOG_DEBUG, "Failed SSL ciphersuite update\n");
-			return -1;
+			//log_printf(LOG_DEBUG, "Failed SSL ciphersuite update\n");
+			ret = -1;
 		}
 	}
 	else {
-		get_cipher_list_string(conn, &data, &len);
-		delete_from_cipherlist(cipher, &data);
+		get_cipher_list_string(conn, &cipherlist, &len);
 
 		char* blacklist = DISABLE_INSECURE_CIPHERS;
-		strcat(data, blacklist);
-		if(SSL_set_cipher_list(ssl, data) == 1) {
-			log_printf(LOG_DEBUG, "Successful SSL cipherlist update %s\n", data);
-			return 0;
+		ret = deletion_loop(cipher, &cipherlist);
+		strcat(cipherlist, blacklist);
+		if(SSL_set_cipher_list(ssl, cipherlist) == 1) {
+			//log_printf(LOG_DEBUG, "Successful SSL cipherlist update %s\n", data);
+			ret = 0;
 		}
 		else {
-			log_printf(LOG_DEBUG, "Failed SSL cipherlist update\n");
-			return -1;
+			//log_printf(LOG_DEBUG, "Failed SSL cipherlist update\n");
+			ret = -1;
 		}
 	}
 	return ret;
