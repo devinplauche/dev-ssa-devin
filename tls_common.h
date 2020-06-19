@@ -27,7 +27,7 @@
 /* for set_connection_type() */
 #define SERVER_CONN 0
 #define CLIENT_CONN 1
-
+#define DISABLE_INSECURE_CIPHERS ":!SSLv3:!TLSv1:!TLSv1.1:!eNULL:!aNULL:!RC4:!MD4:!MD5" 
 
 /* SSL_CTX loading */
 long get_tls_version(enum tls_version_t version);
