@@ -416,11 +416,12 @@ int get_last_negotiated(connection* conn, char** data, unsigned int* data_len) {
 		char* cipher_str = (char*) malloc(cipher_len + 1);
 
 		strcpy(cipher_str, cipher_name);
-
+		free(*data);
 		*data = cipher_str;
 		*data_len = cipher_len + 1;
 
 		log_printf(LOG_INFO, "Negotiated cipher: %s\n", cipher_str);
+
 		return 0;
 	}
 	else {
@@ -775,7 +776,7 @@ int check_key_cert_pair(SSL* tls) {
 int get_ciphersuite_string(connection* conn, char** buf, unsigned int* buf_len) { //FIXME rename buf
   STACK_OF(SSL_CIPHER)* cipherlist = SSL_get1_supported_ciphers(conn->tls);
 	*buf = "";
-	*buf = malloc(MAX_CIPHERSUITE_STRING);
+	*buf = malloc(MAX_CIPHERSUITE_STRING); //TODO: need to free?
   int index = 0;
 	char* ciphersuites = *buf;
 
@@ -812,7 +813,7 @@ int get_ciphersuite_string(connection* conn, char** buf, unsigned int* buf_len) 
 int get_cipher_list_string(connection* conn, char** buf, unsigned int* buf_len) {
 	STACK_OF(SSL_CIPHER)* cipherlist = SSL_get1_supported_ciphers(conn->tls);
 	int ciphers_len = get_ciphers_strlen(cipherlist);
-	*buf = "";
+	*buf = ""; //empties buffer //free?
 	*buf = malloc(ciphers_len);
 	int i = 0;
 	while (i < sk_SSL_CIPHER_num(cipherlist)) { //change to for loop
@@ -821,7 +822,7 @@ int get_cipher_list_string(connection* conn, char** buf, unsigned int* buf_len) 
 		char* cipher_name = malloc(50);
 		strcpy(cipher_name, name);
 		char* version = get_string_version(cipher_name); //use this to replace subtring check
-		free(cipher_name); //TODO organize garbage collection?
+		free(cipher_name); 
 		if (strcmp(version, "TLSv1.3") != 0) {
 		//if (strstr(name, "TLS_") == NULL) {
 			char* data;
