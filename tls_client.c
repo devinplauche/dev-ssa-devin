@@ -32,7 +32,7 @@
                              "TLS_AES_128_GCM_SHA256:"       \
 							 "TLS_CHACHA20_POLY1305_SHA256"
 
-#define DISABLE_INSECURE_CIPHERS "!SSLv3:!TLSv1:!TLSv1.1:!eNULL:!aNULL:!RC4:!MD4:!MD5"  //disable Low?
+//#define DISABLE_INSECURE_CIPHERS "!SSLv3:!TLSv1:!TLSv1.1:!LOW:!eNULL:!aNULL:!RC4:!MD4:!MD5"
 
 
 SSL_CTX* client_ctx_init_default();
@@ -79,7 +79,7 @@ SSL_CTX* client_ctx_init(client_settings* config) {
 
 
 	if (config->cipher_list_cnt > 0) {
-		SSL_CTX_set_cipher_list(ctx, DISABLE_INSECURE_CIPHERS); //add to server as well //FIXME add here ? or when changing?
+		SSL_CTX_set_cipher_list(ctx, DISABLE_INSECURE_CIPHERS); //add to server as well //FIXME add gere, or when list is modified?
 
 		ret = load_cipher_list(ctx,
 				config->cipher_list, config->cipher_list_cnt);

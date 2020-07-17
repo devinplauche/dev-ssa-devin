@@ -25,12 +25,10 @@ int get_ciphers_strlen(STACK_OF(SSL_CIPHER)* ciphers);
 int get_ciphers_string(STACK_OF(SSL_CIPHER)* ciphers, char* buf, int buf_len);
 int check_key_cert_pair(SSL* tls);
 
-int append_to_cipherstring(char* cipher, char** data);
+int append_to_cipherstring(char* cipher, char** cipherstring);
 int get_ciphersuite_string(connection* conn, char** buf, unsigned int* buf_len);
-int get_ciphersuites(connection* conn, char** data, unsigned int* len);
 int get_cipher_list_string(connection* conn, char** buf, unsigned int* buf_len);
-int get_cipher_list(connection* conn, char** data, unsigned int* len);
-
+char* get_string_version(char* cipher_to_check);
 /**
  *******************************************************************************
  *                           COMMON CONFIG LOADING FUNCTIONS
@@ -633,7 +631,8 @@ int enable_cipher(connection* conn, char* cipher) {
 	char* cipherlist;
 	unsigned int cipherlist_len; //is length necessary
 	int ret;
-	if(strstr(cipher, "TLS_")) {
+	char* version = get_string_version(cipher); //needs to be tested replace below if statement
+	if(strcmp(version, "TLSv1.3") == 0) { //better way to detect version from string? make a function that iterates through all TLSv1.3 ciphers?
 		get_ciphersuite_string(conn, &cipherlist, &cipherlist_len);
 		append_to_cipherstring(cipher, &cipherlist);
 		if(SSL_set_ciphersuites(ssl, cipherlist) == 1) {
@@ -785,8 +784,9 @@ int get_ciphersuite_string(connection* conn, char** buf, unsigned int* buf_len) 
 		const char* name = SSL_CIPHER_get_name(curr);
 		char* namecpy = malloc(strlen(name) + 1);
 		strcpy(namecpy, name);
-
-		if (strstr(namecpy, "TLS_") != NULL) {
+		//char* version = SSL_CIPHER_get_version(curr); //use this to replace subtring check
+		//if (version == "TLSv1.3")
+		if (strcmp(get_string_version(namecpy), "TLSv1.3") == 0) {
 			strcpy(&ciphersuites[index], name);
 			index += strlen(name);
 			ciphersuites[index] = ':';
@@ -818,7 +818,12 @@ int get_cipher_list_string(connection* conn, char** buf, unsigned int* buf_len) 
 	while (i < sk_SSL_CIPHER_num(cipherlist)) { //change to for loop
 		const SSL_CIPHER* curr_cipher = sk_SSL_CIPHER_value(cipherlist, i);
 		const char* name = SSL_CIPHER_get_name(curr_cipher);
-		if (strstr(name, "TLS_") == NULL) {
+		char* cipher_name = malloc(50);
+		strcpy(cipher_name, name);
+		char* version = get_string_version(cipher_name); //use this to replace subtring check
+		free(cipher_name); //TODO organize garbage collection?
+		if (strcmp(version, "TLSv1.3") != 0) {
+		//if (strstr(name, "TLS_") == NULL) {
 			char* data;
 			unsigned int len;
 			get_enabled_ciphers(conn, &data, &len);
@@ -836,18 +841,18 @@ int get_cipher_list_string(connection* conn, char** buf, unsigned int* buf_len) 
 * @param data pointer to cipherstring that contains cipher
 * @returns 0 on success -1 on failure
 */
-int append_to_cipherstring(char* cipher, char** data) {
+int append_to_cipherstring(char* cipher, char** cipherstring) {
 	char cipher_division[2] = ":";
 	if(cipher[0] != '-' && cipher[0] != '!') { //won't occur in tls 1.3
 
 		strcat(cipher, cipher_division);
-		char* cipher_list = malloc(strlen(*data) + 100 + strlen(cipher) + 2);
-		 // datalen + strlen of cipher + black list + cipher_division + null
+		char* cipher_with_colon = malloc(strlen(*cipherstring) + 100 + strlen(cipher) + 2);
+		 // datalen + strlen of cipher + black list len + cipher_division + null
 
-		strcpy(cipher_list, cipher);
-		strcat(cipher_list, *data);
+		strcpy(cipher_with_colon, cipher);
+		strcat(cipher_with_colon, *cipherstring);
 
-		*data = cipher_list;
+		//*cipherstring = cipher_list; //FIXME
 		return 0;
 	}
 	else {
@@ -872,7 +877,7 @@ int delete_from_cipherlist(char* cipher, char** cipherlist) {
 
 	while (cipher_token != NULL) {
 		if(strcmp(cipher_token, cipher) != 0) {
-		
+
 			strcat(new_cipherlist, cipher_token);
 			strcat(new_cipherlist, delimiter);
 
@@ -937,11 +942,12 @@ int disable_ciphers(connection* conn, char* cipher) { //replace disable_cipher e
 	char* cipherlist;
 	unsigned int len;
 	int ret;
-	if(strstr(cipher, "TLS_")) {
+	char* version = get_string_version(cipher); //needs to be tested replace below if statement
+	if(strcmp(version, "TLSv1.3") == 0) {
 		get_ciphersuite_string(conn, &cipherlist, &len);
 		ret = deletion_loop(cipher, &cipherlist);
     if(ret == -1) {
-      return -1; //just return -1 earlier?
+      return -1;
     }
 		if(SSL_set_ciphersuites(ssl, cipherlist) == 1) {
 			ret = 0;
