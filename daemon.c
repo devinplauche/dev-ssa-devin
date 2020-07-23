@@ -55,6 +55,7 @@
 #include "netlink.h"
 #include "tls_client.h"
 #include "tls_common.h"
+#include "cipher_selection.h"
 #include "tls_server.h"
 
 
@@ -730,7 +731,7 @@ void setsockopt_cb(daemon_context* ctx, unsigned long id, int level,
 		break;
 
 	case TLS_DISABLE_CIPHER:
-		response = disable_ciphers(sock_ctx->conn, (char*) value); //FIXME change back to disable cipher
+		response = disable_ciphers(sock_ctx->conn, (char*)value);
 		break;
 	case TLS_TRUSTED_PEER_CERTIFICATES:
 		response = set_trusted_CA_certificates(sock_ctx->conn, (char*) value);

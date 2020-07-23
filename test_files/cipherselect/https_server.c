@@ -26,26 +26,32 @@ int main() {
 
 	struct sockaddr_in addr;
 	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	addr.sin_addr.s_addr = inet_addr("192.168.254.64");
 	addr.sin_port = htons(443);
 
 	int fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TLS);
 
-	bind(fd, (struct sockaddr*)&addr, sizeof(addr));
+	//bind(fd, (struct sockaddr*)&addr, sizeof(addr)); //needed?
 
 	listen(fd, SOMAXCONN);
 	char cipher[] = "TLS_AES_256_GCM_SHA384";
+	char cipher1[] = "ECDHE-RSA-AES256-GCM-SHA384";
+	char bad_cipher[] = "NULL-MD5"; //TODO: test more bad ciphers
+	char two_12ciphers[] = "ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384";
+	char two_ciphers[] = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
+	char good_and_bad[] = "NULL-MD5:ECDHE-RSA-AES256-GCM-SHA384";
+
+	//printf("%s\n", cipher);
+
 	if (setsockopt(fd, IPPROTO_TLS, TLS_DISABLE_CIPHER, cipher, strlen(cipher)+1) == -1) {
 		perror("setsockopt: TLS_DISABLE_CIPHER");
 		//close(fd);
 
 	}
-	char bad_cipher[] = "NULL-MD5";
-	char two_ciphers[] = "TLS_AES_128_CCM_SHA256:TLS_AES_128_CCM_8_SHA256";
-	char good_and_bad[] = "NULL-MD5:ECDHE-RSA-AES256-GCM-SHA384";
+
 	if (setsockopt(fd, IPPROTO_TLS, TLS_ENABLE_CIPHER, good_and_bad, strlen(good_and_bad) + 1) == -1) {//my Tests
 		perror("setsockopt: TLS_ENABLE_CIPHER");
-	
+		//close(fd);
 	}
 	while (1) {
 		struct sockaddr_storage addr;

@@ -27,7 +27,7 @@
 /* for set_connection_type() */
 #define SERVER_CONN 0
 #define CLIENT_CONN 1
-#define DISABLE_INSECURE_CIPHERS ":!SSLv3:!TLSv1:!TLSv1.1:!eNULL:!aNULL:!RC4:!MD4:!MD5" 
+
 
 /* SSL_CTX loading */
 long get_tls_version(enum tls_version_t version);
@@ -51,3 +51,12 @@ int disable_ciphers(connection* conn, char* cipher);
 int enable_cipher(connection* conn, char* cipher);
 int set_certificate_chain(connection* conn, char* path);
 int set_private_key(connection* conn, char* path);
+
+/* helper */
+int concat_ciphers(char** list, int num, char** out);
+int clear_from_cipherlist(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist);
+int delete_from_cipherlist(char* cipher, char** cipherlist);
+int set_preferred(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist); //HOLD
+int get_ciphers_strlen(STACK_OF(SSL_CIPHER)* ciphers);
+int get_ciphers_string(STACK_OF(SSL_CIPHER)* ciphers, char* buf, int buf_len);
+int check_key_cert_pair(SSL* tls);

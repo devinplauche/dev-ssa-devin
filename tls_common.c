@@ -3,6 +3,7 @@
 #include "tls_client.h"
 #include "tls_common.h"
 #include "tls_server.h"
+#include "cipher_selection.h"
 
 #include <fcntl.h> /* for S_IFDIR/S_IFREG constants */
 #include <string.h>
@@ -15,7 +16,7 @@
 #define UBUNTU_DEFAULT_CA "/etc/ssl/certs/ca-certificates.crt"
 #define FEDORA_DEFAULT_CA "/etc/pki/tls/certs/ca-bundle.crt"
 #define MAX_NUM_CIPHERS 37
-#define MAX_CIPHERSUITE_STRING 150
+#define MAX_CIPHERSUITE_STRINGLEN 150
 int concat_ciphers(char** list, int num, char** out);
 
 int clear_from_cipherlist(char* cipher, STACK_OF(SSL_CIPHER)* cipherlist);
@@ -25,10 +26,7 @@ int get_ciphers_strlen(STACK_OF(SSL_CIPHER)* ciphers);
 int get_ciphers_string(STACK_OF(SSL_CIPHER)* ciphers, char* buf, int buf_len);
 int check_key_cert_pair(SSL* tls);
 
-int append_to_cipherstring(char* cipher, char** cipherstring);
-int get_ciphersuite_string(connection* conn, char** buf, unsigned int* buf_len);
-int get_cipher_list_string(connection* conn, char** buf, unsigned int* buf_len);
-char* get_string_version(char* cipher_to_check);
+
 /**
  *******************************************************************************
  *                           COMMON CONFIG LOADING FUNCTIONS
@@ -364,70 +362,7 @@ int get_hostname(connection* conn, char** data, unsigned int* len) {
 	return 0;
 }
 
-/**
- * Allocates a string list of enabled ciphers to data.
- * @param conn The specified connection context to retrieve the ciphers from
- * @param data A pointer to a char pointer where the cipherlist string will be
- * allocated to, or NULL if no ciphers were available from the given connection.
- * This should be freed after use.
- * @returns 0 on success; -errno otherwise.
- */
-int get_enabled_ciphers(connection* conn, char** data, unsigned int* len) {
-	char* ciphers_str = "";
 
-	STACK_OF(SSL_CIPHER)* ciphers = SSL_get1_supported_ciphers(conn->tls);
-	if (ciphers == NULL)
-		goto end; /* no ciphers available; just return NULL. */
-
-	int ciphers_len = get_ciphers_strlen(ciphers);
-	if (ciphers_len == 0)
-		goto end;
-
-	ciphers_str = (char*) malloc(ciphers_len + 1);
-	if (ciphers_str == NULL)
-		return -errno;
-
-	if (get_ciphers_string(ciphers, ciphers_str, ciphers_len + 1) != 0) {
-		log_printf(LOG_ERROR, "Buffer wasn't big enough; had to be truncated.\n");
-	}
-
-	*len = ciphers_len + 1;
- end:
-	log_printf(LOG_DEBUG, "Trusted ciphers:\n%s\n", ciphers_str);
-	log_printf(LOG_DEBUG, "Cipher length: %i\n", *len);
-	*data = ciphers_str;
-	return 0;
-}
-/**
-* gets cipher used in connection
-* @param conn connection object
-* @param data stores info to be passed to the user
-* @param data_len length of data
-* @returns last_negotiated last negotiated cipher
-*/
-int get_last_negotiated(connection* conn, char** data, unsigned int* data_len) {
-	SSL* ssl = (conn->tls);
-	const SSL_CIPHER* cipher = SSL_get_current_cipher(ssl);
-  const char* cipher_name = SSL_CIPHER_get_name(cipher);
-
-	if(cipher_name != NULL) {
-
-		unsigned int cipher_len = strlen(cipher_name);
-		char* cipher_str = (char*) malloc(cipher_len + 1);
-
-		strcpy(cipher_str, cipher_name);
-		free(*data);
-		*data = cipher_str;
-		*data_len = cipher_len + 1;
-
-		log_printf(LOG_INFO, "Negotiated cipher: %s\n", cipher_str);
-
-		return 0;
-	}
-	else {
-		return -1;
-	}
-}
 /*
  *******************************************************************************
  *                           SETSOCKOPT FUNCTIONS
@@ -598,69 +533,8 @@ int set_trusted_CA_certificates(connection* conn, char* path) {
 	return 0;
 }
 
-/**
- * Removes a given cipher from the set of enabled ciphers for a connection.
- * TODO: Allow multiple ciphers to be disabled at the same time?
- * @param conn The connection context to remove a cipher from.
- * @param cipher A string representation of the cipher to be removed.
- * @returns 0 on success; -errno otherwise. EINVAL means the cipher to be
- * removed was not found.
- */
 
-int disable_cipher(connection* conn, char* cipher) {
 
-	STACK_OF(SSL_CIPHER)* cipherlist = SSL_get1_supported_ciphers(conn->tls);
-	if (cipherlist == NULL)
-		return -EINVAL;
-
-	int ret = clear_from_cipherlist(cipher, cipherlist);\
-
-	if (ret != 0)
-		return -EINVAL;
-
-	return 0;
-}
-
-/*
-* enables cipher
-* @param conn the connection
-* @param cipher cipher to be reenabled
-* @returns 0 on success, -1 on failure
-*/
-int enable_cipher(connection* conn, char* cipher) {
-	SSL* ssl = (conn->tls);
-	char* cipherlist;
-	unsigned int cipherlist_len; //is length necessary
-	int ret;
-	char* version = get_string_version(cipher); //needs to be tested replace below if statement
-	if(strcmp(version, "TLSv1.3") == 0) { //better way to detect version from string? make a function that iterates through all TLSv1.3 ciphers?
-		get_ciphersuite_string(conn, &cipherlist, &cipherlist_len);
-		append_to_cipherstring(cipher, &cipherlist);
-		if(SSL_set_ciphersuites(ssl, cipherlist) == 1) {
-			log_printf(LOG_DEBUG, "Successful SSL ciphersuite update %s\n", cipherlist);
-			ret = 0;
-		}
-		else {
-			log_printf(LOG_DEBUG, "Failed SSL ciphersuite update\n");
-			ret = -1;
-		}
-	}
-	else {
-		get_cipher_list_string(conn, &cipherlist, &cipherlist_len);
-		append_to_cipherstring(cipher, &cipherlist);
-		char* blacklist = DISABLE_INSECURE_CIPHERS;
-		strcat(cipherlist, blacklist);
-		if(SSL_set_cipher_list(ssl, cipherlist) == 1) {
-			log_printf(LOG_DEBUG, "Successful SSL cipherlist update\n %s\n", cipherlist);
-			ret = 0;
-		}
-		else {
-			log_printf(LOG_DEBUG, "Failed SSL cipherlist update\n");
-			ret = -1;
-		}
-	}
-	return ret;
-}
 /*
  *******************************************************************************
  *                             HELPER FUNCTIONS
@@ -765,214 +639,4 @@ int check_key_cert_pair(SSL* tls) {
 	return 0;
  err:
 	return -EPROTO; /* Protocol err--key didn't match or chain didn't build */
-}
-
-/**
-* makes stack of ciphers into a string of ciphersuites
-* ciphers stack of all ciphers associated with ssl object
-* buf buffer to store resulting string
-* buf_len keeps track of string length
-*/
-int get_ciphersuite_string(connection* conn, char** buf, unsigned int* buf_len) { //FIXME rename buf
-  STACK_OF(SSL_CIPHER)* cipherlist = SSL_get1_supported_ciphers(conn->tls);
-	*buf = "";
-	*buf = malloc(MAX_CIPHERSUITE_STRING); //TODO: need to free?
-  int index = 0;
-	char* ciphersuites = *buf;
-
-	for (int i = 0; i < sk_SSL_CIPHER_num(cipherlist); i++) {
-		const SSL_CIPHER* curr = sk_SSL_CIPHER_value(cipherlist, i);
-		const char* name = SSL_CIPHER_get_name(curr);
-		char* namecpy = malloc(strlen(name) + 1);
-		strcpy(namecpy, name);
-		//char* version = SSL_CIPHER_get_version(curr); //use this to replace subtring check
-		//if (version == "TLSv1.3")
-		if (strcmp(get_string_version(namecpy), "TLSv1.3") == 0) {
-			strcpy(&ciphersuites[index], name);
-			index += strlen(name);
-			ciphersuites[index] = ':';
-			index += 1;
-		}
-		else {
-			break;
-		}
-	}
-
-	ciphersuites[index - 1] = '\0'; /* change last ':' to '\0' */
-	*buf_len = strlen(*buf) + 1;
-	return 0;
-}
-
-/**
-* sorts ciphers associated with ssl object for TLS version 1.2 and beneath
-* conn associated connection
-*	@param buf buffer to store data
-* @param buf_len keeps track of buffer length
-* @returns 0 on success -1 on failure
-*/
-int get_cipher_list_string(connection* conn, char** buf, unsigned int* buf_len) {
-	STACK_OF(SSL_CIPHER)* cipherlist = SSL_get1_supported_ciphers(conn->tls);
-	int ciphers_len = get_ciphers_strlen(cipherlist);
-	*buf = ""; //empties buffer //free?
-	*buf = malloc(ciphers_len);
-	int i = 0;
-	while (i < sk_SSL_CIPHER_num(cipherlist)) { //change to for loop
-		const SSL_CIPHER* curr_cipher = sk_SSL_CIPHER_value(cipherlist, i);
-		const char* name = SSL_CIPHER_get_name(curr_cipher);
-		char* cipher_name = malloc(50);
-		strcpy(cipher_name, name);
-		char* version = get_string_version(cipher_name); //use this to replace subtring check
-		free(cipher_name); 
-		if (strcmp(version, "TLSv1.3") != 0) {
-		//if (strstr(name, "TLS_") == NULL) {
-			char* data;
-			unsigned int len;
-			get_enabled_ciphers(conn, &data, &len);
-			*buf = strstr(data, name);
-			*buf_len = strlen(*buf) + 1;
-			return 0;
-		}
-		i++;
-	}
-	return -1;
-}
-/**
-* appends given cipher to cipherlist in data
-* @param cipher specific cipher as a string
-* @param data pointer to cipherstring that contains cipher
-* @returns 0 on success -1 on failure
-*/
-int append_to_cipherstring(char* cipher, char** cipherstring) {
-	char cipher_division[2] = ":";
-	if(cipher[0] != '-' && cipher[0] != '!') { //won't occur in tls 1.3
-
-		strcat(cipher, cipher_division);
-		char* cipher_with_colon = malloc(strlen(*cipherstring) + 100 + strlen(cipher) + 2);
-		 // datalen + strlen of cipher + black list len + cipher_division + null
-
-		strcpy(cipher_with_colon, cipher);
-		strcat(cipher_with_colon, *cipherstring);
-
-		//*cipherstring = cipher_list; //FIXME
-		return 0;
-	}
-	else {
-		log_printf(LOG_ERROR, "Please use TLS_DISABLE_CIPHER to disable cipher.\n"); //change, seen by developers only
-		return -1;
-	}
-}
-
-/**
-* Makes a new cipherstring without provided cipher
-* @param cipher cipher to be Deleted
-* @param cipherlist list to delete ciphers from
-* @returns 0 on success error code on failure
-*/
-int delete_from_cipherlist(char* cipher, char** cipherlist) {
-	char* new_cipherlist = malloc(strlen(*cipherlist) + 50); //space for new cipher
-	new_cipherlist[0] = '\0';
-	int has_cipher = 0;
-
-	const char delimiter[2] = ":";
-	char* cipher_token = strtok(*cipherlist, delimiter);
-
-	while (cipher_token != NULL) {
-		if(strcmp(cipher_token, cipher) != 0) {
-
-			strcat(new_cipherlist, cipher_token);
-			strcat(new_cipherlist, delimiter);
-
-		}
-		else {
-			has_cipher = 1;
-		}
-		cipher_token = strtok(NULL, delimiter);
-	}
-
-	new_cipherlist[strlen(new_cipherlist) - 1] = '\0'; //pops back last ":"
-	*cipherlist = new_cipherlist;
-
-	/* assert: all ciphers to remove now removed */
-	if (has_cipher)
-		return 0;
-	else
-		return -1;
-
-}
-/**
-* Iterates through ciphers provided and deletes them
-*	@param cipher cipherstring (one or many ciphers) to be deleted
-* @param cipherlist list thet ciphers will be deleted from
-* @returns 0 on success -1 on failure
-*/
-int deletion_loop(char* cipher, char** cipherlist) { //return error code from deletion
-	const char delimiter[2] = ":";
-	char* cipher_token = strtok(cipher, delimiter);
-	char** to_delete = malloc(strlen(*cipherlist));
-	int index = 0;
-	int ret = 0;
-
-	while (cipher_token != NULL) {
-
-			to_delete[index] = cipher_token;
-			index++;
-			if(index > MAX_NUM_CIPHERS) {
-        ret = -1;
-			}
-
-			cipher_token = strtok(NULL, delimiter);
-	}
-
-	for(int i = 0; i < index; i++) {
-		ret = delete_from_cipherlist(to_delete[i], cipherlist);
-    if(ret == -1) {
-			return ret;
-		}
-	}
-
-	return ret;
-}
-/**
-* detects cipher version and loads appropiate cipher list
-* @param conn  connection object
-*	@param cipher cipher to load
-* @returns 0 on success and -1 on failure
-*/
-int disable_ciphers(connection* conn, char* cipher) { //replace disable_cipher eventually
-	SSL* ssl = (conn->tls);
-	char* cipherlist;
-	unsigned int len;
-	int ret;
-	char* version = get_string_version(cipher); //needs to be tested replace below if statement
-	if(strcmp(version, "TLSv1.3") == 0) {
-		get_ciphersuite_string(conn, &cipherlist, &len);
-		ret = deletion_loop(cipher, &cipherlist);
-    if(ret == -1) {
-      return -1;
-    }
-		if(SSL_set_ciphersuites(ssl, cipherlist) == 1) {
-			ret = 0;
-		}
-		else {
-			ret = -1;
-		}
-	}
-	else {
-
-		get_cipher_list_string(conn, &cipherlist, &len);
-
-		char* blacklist = DISABLE_INSECURE_CIPHERS;
-
-		ret = deletion_loop(cipher, &cipherlist);
-
-		strcat(cipherlist, blacklist);
-
-		if(SSL_set_cipher_list(ssl, cipherlist) == 1) {
-			ret = 0;
-		}
-		else {
-			ret = -1;
-		}
-	}
-	return ret;
 }

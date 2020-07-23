@@ -1,2 +1,2 @@
-cipherselect: https_client.c
-		gcc -o cipherselect https_client.c
+cipherselect: https_server.c
+		gcc -o server_test https_server.c
